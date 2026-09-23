@@ -1,0 +1,6 @@
+# Imágenes originales y resultados regenerables no forman parte del código.
+*.zip
+/build/
+/data/
+/output/
+*.class
