@@ -4,3 +4,6 @@
 /data/
 /output/
 *.class
+
+# Instrucciones locales del asistente; no se publican en GitHub.
+/AGENTS.md
