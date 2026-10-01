@@ -14,7 +14,7 @@ todo el desarrollo; la etapa 8 integra y prepara la entrega final.
 | Etapa | Resultado | Estado |
 | --- | --- | --- |
 | 1 | Base técnica y bloques verificables | Implementada y probada en imágenes pequeñas |
-| 2 | Preprocesamiento y almacenamiento de imágenes | Pendiente |
+| 2 | Preprocesamiento y almacenamiento de imágenes | Implementada y probada hasta la imagen de 17 GB |
 | 3 | Servidor y primera comunicación completa | Pendiente |
 | 4 | Créditos y recuperación básica | Pendiente |
 | 5 | Reutilización, prioridades, caché y generaciones | Pendiente |
@@ -29,8 +29,7 @@ dividir imágenes pequeñas y verificar píxeles y hashes. Documentar la elecci�
 inicial Java 21 y PRIB sobre WebSocket/TCP para las etapas de comunicación.
 
 **Cierre:** bloques y bordes iguales a ImageIO, errores PNG detectados y contrato
-interpretado en JavaScript. Evidencia en [etapa-1.md](etapa-1.md). La lectura
-completa de imágenes grandes y el canal de navegador siguen pendientes.
+interpretado en JavaScript. Evidencia en [etapa-1.md](etapa-1.md). La etapa 1 no incluye lectura completa de imágenes grandes ni el canal de navegador.
 
 ## 2. Preparación y almacenamiento de imágenes
 
@@ -42,6 +41,8 @@ Evitar cargar imágenes completas o generar cantidades inmanejables de archivos.
 **Cierre:** consultar regiones y bordes por bloque; registrar memoria, tiempo,
 espacio de salida y temporales. Probar tamaños crecientes antes de preparar
 las imágenes de 17 y 28 GB. Los números deben conservarse legibles a máxima resolución.
+
+Implementación y comandos en [etapa-2.md](etapa-2.md).
 
 ## 3. Servidor y primera comunicación completa
 
