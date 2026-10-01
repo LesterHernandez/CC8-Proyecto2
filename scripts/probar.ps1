@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 # Resolver rutas desde el proyecto aunque se invoque el script desde otra carpeta.
 Push-Location (Split-Path $PSScriptRoot -Parent)
 try {
-    # javac compila las dos clases; las clases generadas no se incluyen en Git.
+    # javac compila las clases principales; las clases generadas no se incluyen en Git.
     New-Item -ItemType Directory -Force build/classes | Out-Null
     $sources = Get-ChildItem src/main/java/prib/*.java | Select-Object -ExpandProperty FullName
     javac -encoding UTF-8 -d build/classes $sources

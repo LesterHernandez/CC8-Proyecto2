@@ -44,7 +44,8 @@ public final class PngRows implements AutoCloseable {
         if (filter < 0 || filter > 4) throw new IOException("Filtro PNG inválido o datos truncados");
         // Cada fila comienza con un filtro, seguido por exactamente width * 3 bytes.
         new DataInputStream(pixels).readFully(current);
-        for (int x=0; x<current.length; x++) {
+        // None ya contiene RGB original: evita recorrer otra vez filas grandes sin filtro.
+        for (int x=0; filter != 0 && x<current.length; x++) {
             // Vecinos del mismo canal: izquierda (a), arriba (b), diagonal (c).
             int a = x>=3 ? current[x-3]&255 : 0;
             int b = previous[x]&255;
