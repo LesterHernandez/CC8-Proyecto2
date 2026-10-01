@@ -15,7 +15,7 @@ todo el desarrollo; la etapa 8 integra y prepara la entrega final.
 | --- | --- | --- |
 | 1 | Base técnica y bloques verificables | Implementada y probada en imágenes pequeñas |
 | 2 | Preprocesamiento y almacenamiento de imágenes | Implementada y probada hasta la imagen de 17 GB |
-| 3 | Servidor y primera comunicación completa | Pendiente |
+| 3 | Servidor y primera comunicación completa | Implementada; FULL y dos clientes probados con almacén de 17 GB |
 | 4 | Créditos y recuperación básica | Pendiente |
 | 5 | Reutilización, prioridades, caché y generaciones | Pendiente |
 | 6 | DELTA exacto y recuperación selectiva | Pendiente |
@@ -53,6 +53,8 @@ de sesión/vista/transferencia, límites de mensajes y cierre de recursos.
 **Cierre:** dos navegadores solicitan regiones diferentes con estados independientes;
 reciben, verifican y dibujan únicamente los bloques solicitados. Las operaciones
 de disco o CPU no bloquean la atención de conexiones; las colas tienen límites.
+
+Implementación, mensajes y pruebas en [etapa-3.md](etapa-3.md).
 
 ## 4. Créditos y recuperación básica
 
