@@ -10,6 +10,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación' }
     java -Xmx256m -cp build/classes prib.PngRowsTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas PNG' }
+    # Comprobar índices, compresión, niveles y consultas de la etapa 2.
+    java -Xmx256m -cp build/classes prib.ImageStoreTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas del almacén' }
 } finally {
     Pop-Location # Restaurar la ubicación de quien invocó el script.
 }
