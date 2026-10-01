@@ -13,6 +13,9 @@ try {
     # Comprobar índices, compresión, niveles y consultas de la etapa 2.
     java -Xmx256m -cp build/classes prib.ImageStoreTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas del almacén' }
+    # Servidor temporal en un puerto libre y dos clientes WebSocket reales.
+    java -Xmx256m -cp build/classes prib.PribServerTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de red PRIB' }
 } finally {
     Pop-Location # Restaurar la ubicación de quien invocó el script.
 }
