@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PRIB · Visor de imágenes</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<header><div><span class="eyebrow">REDES · CC8</span><h1>PRIB <span>Visor de imágenes</span></h1></div><span id="connection" class="badge">Conectando…</span></header>
+<main>
+  <section class="toolbar" aria-label="Controles de visualización">
+    <label>Imagen preparada<select id="image" disabled></select></label>
+    <label>Nivel de detalle<select id="level" disabled></select></label>
+    <div class="zoom-controls" role="group" aria-label="Acercamiento">
+      <button id="zoom-out" aria-label="Alejar" disabled>−</button>
+      <output id="zoom-value" aria-live="polite">100 %</output>
+      <button id="zoom-in" aria-label="Acercar" disabled>+</button>
+    </div>
+    <button id="fit" disabled>Ver imagen completa</button>
+    <button id="reconnect">Reconectar</button>
+    <button id="toggle-info" aria-expanded="false" aria-controls="transfer">Mostrar transferencia</button>
+    <button id="fullscreen">Pantalla completa</button>
+  </section>
+  <div class="layout">
+    <section class="viewer">
+      <div class="viewer-title"><h2>Explorar imagen</h2><span id="dimensions">Esperando catálogo</span></div>
+      <p class="hint">Arrastra para desplazarte. Usa la rueda para acercar o alejar sobre el cursor.</p>
+      <div id="stage"><canvas id="canvas" width="960" height="512" aria-label="Región de la imagen seleccionada"></canvas></div>
+      <form id="position">
+        <label>Columna X<input id="x" type="number" min="0" value="0" step="1" required></label>
+        <label>Fila Y<input id="y" type="number" min="0" value="0" step="1" required></label>
+        <button id="go" disabled>Ir a la región</button>
+        <span id="view-state" role="status">Sin vista</span>
+      </form>
+    </section>
+    <aside id="transfer" hidden>
+      <h2>Transferencia actual</h2>
+      <p>Solo se solicitan los bloques que intersectan la región visible.</p>
+      <dl>
+        <dt>Bloques verificados</dt><dd id="blocks">0 / 0</dd>
+        <dt>RGB recibido en esta vista</dt><dd id="bytes">0 KB</dd>
+        <dt>Modo de envío</dt><dd>FULL</dd>
+        <dt>Integridad</dt><dd id="integrity">Pendiente</dd>
+        <dt>Vista</dt><dd id="view-id">—</dd>
+        <dt>Sesión</dt><dd id="session">—</dd>
+      </dl>
+      <p class="note">Nivel 0 conserva la resolución original. Los niveles superiores muestran una versión reducida.</p>
+    </aside>
+  </div>
+  <p id="error" role="alert" hidden></p>
+  <footer>Etapa 3 · Servidor Java local · HTTP + WebSocket · Sin recursos externos</footer>
+</main>
+</body>
+</html>
+
