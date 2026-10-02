@@ -19,6 +19,7 @@ import javax.imageio.ImageIO;
  */
 public final class PribServerTest {
     public static void main(String[] args) throws Exception {
+        writeBudget();
         framing();
         Path root = Files.createTempDirectory(Path.of("build"), "server-test-");
         Path data = Files.createDirectory(root.resolve("data"));
@@ -61,15 +62,126 @@ public final class PribServerTest {
                 try (Peer invalid = new Peer(http, server.port())) {
                     invalid.hello();
                     invalid.send("VIEW", Map.of("sessionId", "otra-sesion", "viewId", 1));
-                    check(invalid.next().toString().contains("ERROR"), "Rechazar sesión ajena");
+                    while (true) {
+                        String reply = invalid.next().toString();
+                        if (reply.contains("CREDIT_STATUS")) continue;
+                        check(reply.contains("ERROR"), "Rechazar sesión ajena"); break;
+                    }
                 }
                 try (Peer invalid = new Peer(http, server.port())) {
                     invalid.send("HELLO", Map.of("version", 2));
                     check(invalid.next().toString().contains("ERROR"), "Rechazar versión no soportada");
                 }
+                creditTests(http, server.port(), first);
                 System.out.println("PASS HTTP local, rutas restringidas y controles inválidos");
             } finally { server.close(); thread.join(5000); check(!thread.isAlive(), "Cierre del servidor"); }
         }
+    }
+
+    /** El cliente lento no devuelve capacidad hasta que la prueba lo ordena.
+     * Comparar bytes reales detecta errores de contabilidad de cabeceras, no solo de RGB.
+     */
+    private static void creditTests(HttpClient http, int port, ImageStore image) throws Exception {
+        try (Peer slow = new Peer(http, port); Peer fast = new Peer(http, port)) {
+            slow.hello(false); fast.hello();
+            slow.view(image, 1, 0, 0, 0, 320, 128);
+            creditStatus(slow, "WAIT_INIT"); noData(slow);
+            slow.send("CREDIT_INIT", Map.of("capacityBytes", CreditWindow.MAX_PACKET));
+            byte[] one = nextBlock(slow);
+            Map<String, Object> state = creditStatus(slow, "WAIT_CREDIT");
+            check(Json.integer(state, "availableBytes") == CreditWindow.MAX_PACKET-one.length, "Descuento exacto PRIB");
+            Map<String, Object> header = blockHeader(one);
+            slow.send("ACK", Map.of("viewId", 1, "transferId", Json.integer(header, "transferId"), "hash", Json.text(header, "expectedHash")));
+            // Ni ACK ni repetir INIT pueden reponer crédito.
+            slow.send("CREDIT_INIT", Map.of("capacityBytes", CreditWindow.MAX_PACKET));
+            slow.send("CREDIT_STATUS", Map.of());
+            state = creditStatus(slow, "WAIT_CREDIT");
+            check(Json.integer(state, "availableBytes") == CreditWindow.MAX_PACKET-one.length, "ACK e INIT no liberan bytes");
+            noData(slow);
+            fast.view(image, 1, 0, 0, 0, 320, 260); fast.finish(image, 1, 0, 0, 0, 320, 260);
+            slow.send("CREDIT_GRANT", Map.of("grantId", 1, "releasedBytes", one.length));
+            byte[] two = nextBlock(slow); creditStatus(slow, "WAIT_CREDIT");
+            slow.send("CREDIT_GRANT", Map.of("grantId", 1, "releasedBytes", one.length));
+            noData(slow); // La misma concesión no financia un tercer bloque.
+            slow.view(image, 2, 0, 0, 0, 256, 128);
+            slow.send("CREDIT_STATUS", Map.of());
+            state = creditStatus(slow, "WAIT_CREDIT");
+            check(Json.integer(state, "outstandingBytes") == two.length, "Cambio de vista conserva deuda");
+            slow.send("CREDIT_GRANT", Map.of("grantId", 2, "releasedBytes", one.length+two.length));
+            byte[] three = nextBlock(slow); creditStatus(slow, "WAIT_CREDIT");
+            check(Json.integer(blockHeader(three), "viewId") == 2, "Reanudar vista nueva");
+            slow.send("CREDIT_GRANT", Map.of("grantId", 1, "releasedBytes", one.length)); noData(slow);
+            long total = one.length+two.length+three.length;
+            slow.send("CREDIT_GRANT", Map.of("grantId", 3, "releasedBytes", total));
+            byte[] four = nextBlock(slow); creditStatus(slow, "IDLE");
+            slow.send("CREDIT_GRANT", Map.of("grantId", 4, "releasedBytes", total+four.length));
+            state = creditStatus(slow, "IDLE");
+            check(Json.integer(state, "availableBytes") == CreditWindow.MAX_PACKET, "Capacidad recuperada sin ACK");
+        }
+        try (Peer fresh = new Peer(http, port)) {
+            fresh.hello();
+            Map<String, Object> state = creditStatus(fresh, "IDLE");
+            check(Json.integer(state, "outstandingBytes") == 0 && Json.integer(state, "availableBytes") == 262144, "Nueva sesión sin deuda");
+            fresh.send("CREDIT_GRANT", Map.of("grantId", 1, "releasedBytes", 1));
+            check(fresh.next().toString().contains("ERROR"), "Rechazar liberación de bytes no enviados");
+        }
+        System.out.println("PASS créditos: pausa, reanudación, duplicados, ACK separado, vistas, cliente lento y sesión nueva");
+    }
+    private static Map<String, Object> blockHeader(byte[] bytes) {
+        ByteBuffer data = ByteBuffer.wrap(bytes); byte[] header = new byte[data.getInt()]; data.get(header);
+        return Json.parse(WebSocketFrames.utf8(header));
+    }
+    private static byte[] nextBlock(Peer peer) throws Exception {
+        while (true) {
+            Object item = peer.next();
+            if (item instanceof byte[] bytes) return bytes;
+            check(!item.toString().contains("ERROR"), item.toString());
+        }
+    }
+    private static Map<String, Object> creditStatus(Peer peer, String expectedState) throws Exception {
+        while (true) {
+            Object item = peer.next(); check(item instanceof String, "Bloque inesperado mientras se espera estado");
+            Map<String, Object> message = Json.parse((String)item);
+            check(!Json.text(message, "type").equals("ERROR"), item.toString());
+            if (Json.text(message, "type").equals("CREDIT_STATUS") && Json.text(message, "state").equals(expectedState)) return message;
+        }
+    }
+    private static void noData(Peer peer) throws Exception {
+        long end = System.nanoTime() + 250_000_000L;
+        while (System.nanoTime() < end) {
+            Object item = peer.received.poll(25, TimeUnit.MILLISECONDS);
+            check(!(item instanceof byte[]) && !(item instanceof Throwable), "Datos enviados sin capacidad");
+            if (item != null) check(!item.toString().contains("ERROR"), item.toString());
+        }
+    }
+
+    /** Un canal que acepta todo permite comprobar el límite sin depender de la red real. */
+    private static void writeBudget() throws IOException {
+        ByteBuffer buffer = ByteBuffer.allocate(200000);
+        java.nio.channels.WritableByteChannel channel = new java.nio.channels.WritableByteChannel() {
+            public int write(ByteBuffer source) {
+                int bytes = source.remaining(); source.position(source.limit()); return bytes;
+            }
+            public boolean isOpen() { return true; }
+            public void close() { }
+        };
+        check(PribServer.writeLimited(channel, buffer, 65536)==65536, "Presupuesto estricto");
+        check(buffer.position()==65536 && buffer.limit()==200000, "Conservar bytes pendientes");
+        check(PribServer.writeLimited(channel, buffer, 19)==19, "Respetar saldo restante del turno");
+        java.nio.channels.WritableByteChannel partial = new java.nio.channels.WritableByteChannel() {
+            public int write(ByteBuffer source) { source.position(source.position()+7); return 7; }
+            public boolean isOpen() { return true; }
+            public void close() { }
+        };
+        check(PribServer.writeLimited(partial, buffer, 100)==7 && buffer.limit()==200000, "Escritura parcial");
+        java.nio.channels.WritableByteChannel broken = new java.nio.channels.WritableByteChannel() {
+            public int write(ByteBuffer source) throws IOException { throw new IOException("prueba"); }
+            public boolean isOpen() { return true; }
+            public void close() { }
+        };
+        try { PribServer.writeLimited(broken, buffer, 100); throw new AssertionError("Falta error"); }
+        catch (IOException expected) { check(buffer.limit()==200000, "Restaurar límite tras error"); }
+        System.out.println("PASS presupuesto de escritura: estricto, parcial y restauración tras error");
     }
 
     private static void check(boolean success, String message) { if (!success) throw new AssertionError(message); }
@@ -103,7 +215,7 @@ public final class PribServerTest {
     private static final class Peer implements WebSocket.Listener, AutoCloseable {
         final BlockingQueue<Object> received = new LinkedBlockingQueue<>();
         final StringBuilder text = new StringBuilder(); final ByteArrayOutputStream binary = new ByteArrayOutputStream();
-        final WebSocket socket; String session = "";
+        final WebSocket socket; String session = ""; long released, grantId;
         Peer(HttpClient client, int port) {
             socket = client.newWebSocketBuilder().connectTimeout(Duration.ofSeconds(5))
                     .buildAsync(URI.create("ws://localhost:"+port+"/ws"), this).join();
@@ -127,10 +239,12 @@ public final class PribServerTest {
             Map<String, Object> data = new LinkedHashMap<>(); data.put("version", 1); data.put("type", type); data.put("sessionId", session);
             data.putAll(fields); socket.sendText(Json.encode(data), true).join();
         }
-        void hello() throws InterruptedException {
+        void hello() throws InterruptedException { hello(true); }
+        void hello(boolean initialize) throws InterruptedException {
             send("HELLO", Map.of()); String catalog = next().toString();
             Matcher matcher = Pattern.compile("\"sessionId\":\"([^\"]+)\"").matcher(catalog);
             check(catalog.contains("IMAGE_INFO") && matcher.find(), "Catálogo inicial"); session = matcher.group(1);
+            if (initialize) send("CREDIT_INIT", Map.of("capacityBytes", 262144));
         }
         void view(ImageStore image, int id, int level, int x, int y, int width, int height) {
             send("VIEW", Map.of("imageId", image.imageId, "viewId", id, "level", level, "x", x, "y", y, "width", width, "height", height));
@@ -142,6 +256,7 @@ public final class PribServerTest {
                 if (item instanceof String control) {
                     Map<String, Object> message = Json.parse(control);
                     check(!Json.text(message, "type").equals("ERROR"), control);
+                    if (Json.text(message, "type").equals("CREDIT_STATUS")) continue;
                     if (Json.integer(message, "viewId") != id) continue;
                     check(session.equals(Json.text(message, "sessionId")), "Sesión de respuesta");
                     if (Json.text(message, "type").equals("VIEW_ACCEPTED")) expected = Json.integer(message, "blocks");
@@ -150,6 +265,8 @@ public final class PribServerTest {
                         check(expected == actual && seen.size()==actual, "Solo bloques intersectados, sin faltantes"); return;
                     }
                 } else {
+                    released += ((byte[])item).length;
+                    send("CREDIT_GRANT", Map.of("grantId", ++grantId, "releasedBytes", released));
                     ByteBuffer data = ByteBuffer.wrap((byte[])item); int size = data.getInt();
                     check(size>0 && size<=4096, "Cabecera binaria limitada"); byte[] header = new byte[size]; data.get(header);
                     Map<String, Object> message = Json.parse(WebSocketFrames.utf8(header));
