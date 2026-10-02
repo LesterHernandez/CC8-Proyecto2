@@ -8,8 +8,28 @@ let timer, drag, resizeTimer, activeView, magnification = 1;
 // Solo un bloque auxiliar para ampliar sin suavizado; no es una caché de imagen.
 const tileCanvas = document.createElement('canvas'), tileContext = tileCanvas.getContext('2d');
 const MAX_ZOOM = 65536; // Evita desbordamientos; permite inspeccionar mucho menos de un píxel.
+const CREDIT_CAPACITY = 256 * 1024;
+let releasedBytes = 0, grantId = 0, grantsPaused = false, resumeView;
+// Solo se conserva el total liberado; pausar concesiones no retiene bloques en RAM.
+function grantCapacity() {
+  if (!grantsPaused && sessionId && socket?.readyState === WebSocket.OPEN)
+    send('CREDIT_GRANT', {grantId: ++grantId, releasedBytes});
+}
 const decoder = new TextDecoder('utf-8', {fatal: true});
 
+// Actualizaciones pequeñas de interfaz compartidas por conexión y recepción.
+function setControlsEnabled(enabled) {
+  for (const id of ['image', 'level', 'fit', 'go', 'zoom-in', 'zoom-out']) $(id).disabled = !enabled;
+}
+function resetCounters() {
+  expected = 0; verified = 0; receivedBytes = 0; seen.clear(); counters();
+}
+function showCreditStatus(message) {
+  $('credit-available').textContent = (message.availableBytes/1024).toFixed(1) + ' KiB';
+  $('credit-outstanding').textContent = (message.outstandingBytes/1024).toFixed(1) + ' KiB';
+  $('credit-state').textContent = {WAIT_INIT: 'Esperando capacidad inicial', WAIT_CREDIT: 'Esperando crédito',
+    SENDING: 'Enviando', IDLE: 'Sin envíos pendientes'}[message.state] || message.state;
+}
 function error(message) { $('error').textContent = message; $('error').hidden = false; }
 function send(type, fields = {}) {
   if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({version: 1, type, sessionId, ...fields}));
@@ -46,18 +66,18 @@ function requestView() {
   $('x').max = Math.floor(Math.max(0, size.width-visibleWidth));
   $('y').max = Math.floor(Math.max(0, size.height-visibleHeight));
   $('zoom-value').textContent = (100 * magnification / 2 ** level).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' %';
-  viewId++; activeView = {imageId: current.imageId, level, x, y, width, height, magnification}; expected = 0; verified = 0; receivedBytes = 0; seen.clear(); counters();
+  viewId++; activeView = {imageId: current.imageId, level, x, y, width, height, magnification}; resetCounters();
   context.fillStyle = '#dfe7ec'; context.fillRect(0, 0, canvas.width, canvas.height);
   $('view-id').textContent = viewId; $('view-state').textContent = 'Solicitando bloques…';
   $('dimensions').textContent = `${size.width.toLocaleString()} × ${size.height.toLocaleString()} · nivel ${level}`;
   send('VIEW', {imageId: current.imageId, viewId, level, x: left, y: top, width, height});
 }
 function scheduleView() { clearTimeout(timer); timer = setTimeout(requestView, 100); }
-function selectImage() {
+function selectImage(fitView = true) {
   current = images.find(item => item.imageId === $('image').value);
   $('level').replaceChildren();
   for (let i = 0; i < current.levels; i++) $('level').add(new Option(i === 0 ? '0 · Resolución original' : `${i} · Reducida`, i));
-  x = 0; y = 0; fit();
+  x = 0; y = 0; if (fitView) fit();
 }
 function fit() {
   if (!current) return;
@@ -89,6 +109,21 @@ function zoom(direction, px, py) {
   }
 }
 
+// Dibuja únicamente datos que ya superaron la verificación de integridad.
+function drawBlock(header, rgb, view) {
+  const pixels = new ImageData(header.width, header.height);
+  for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
+    pixels.data[j] = rgb[i]; pixels.data[j+1] = rgb[i+1]; pixels.data[j+2] = rgb[i+2]; pixels.data[j+3] = 255;
+  }
+  // La vista enviada es inmutable aunque el usuario ya esté arrastrando hacia otra zona.
+  tileCanvas.width = header.width; tileCanvas.height = header.height;
+  tileContext.putImageData(pixels, 0, 0);
+  context.imageSmoothingEnabled = false; // Mostrar los píxeles originales, sin inventar detalles.
+  const scale = view.magnification;
+  context.drawImage(tileCanvas, (header.x-view.x)*scale, (header.y-view.y)*scale,
+                    header.width*scale, header.height*scale);
+}
+
 async function receive(data, generation) {
   if (generation !== epoch) return;
   if (typeof data === 'string') {
@@ -99,10 +134,20 @@ async function receive(data, generation) {
       sessionId = message.sessionId; images = message.images.sort((a,b) => a.width*a.height - b.width*b.height);
       $('session').textContent = sessionId; $('image').replaceChildren();
       images.forEach(item => $('image').add(new Option(item.name, item.imageId)));
-      for (const id of ['image', 'level', 'fit', 'go', 'zoom-in', 'zoom-out']) $(id).disabled = false;
-      $('connection').textContent = 'Conectado'; selectImage(); return;
+      setControlsEnabled(true);
+      send('CREDIT_INIT', {capacityBytes: CREDIT_CAPACITY});
+      $('pause-credit').disabled = false;
+      $('connection').textContent = 'Conectado';
+      if (resumeView && images.some(item => item.imageId === resumeView.imageId)) {
+        $('image').value = resumeView.imageId;
+        const saved = resumeView; resumeView = null;
+        selectImage(false); level = saved.level; magnification = saved.magnification;
+        x = saved.x; y = saved.y; $('level').value = level; requestView();
+      } else { resumeView = null; selectImage(); }
+      return;
     }
     if (message.sessionId !== sessionId) throw new Error('La respuesta pertenece a otra sesión');
+    if (message.type === 'CREDIT_STATUS') { showCreditStatus(message); return; }
     if (message.viewId !== viewId) return;
     if (message.type === 'VIEW_ACCEPTED') { expected = message.blocks; counters(); }
     else if (message.type === 'VIEW_DONE') {
@@ -127,30 +172,26 @@ async function receive(data, generation) {
   const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', rgb)), byte => byte.toString(16).padStart(2,'0')).join('');
   if (generation !== epoch || header.viewId !== viewId) return;
   if (hash !== header.expectedHash) throw new Error('SHA-256 incorrecto: se detuvo la vista');
-  const pixels = new ImageData(header.width, header.height);
-  for (let i = 0, j = 0; i < rgb.length; i += 3, j += 4) {
-    pixels.data[j] = rgb[i]; pixels.data[j+1] = rgb[i+1]; pixels.data[j+2] = rgb[i+2]; pixels.data[j+3] = 255;
-  }
-  // La vista enviada es inmutable aunque el usuario ya esté arrastrando hacia otra zona.
-  tileCanvas.width = header.width; tileCanvas.height = header.height;
-  tileContext.putImageData(pixels, 0, 0);
-  context.imageSmoothingEnabled = false; // Mostrar los píxeles originales, sin inventar detalles.
-  const scale = activeView.magnification;
-  context.drawImage(tileCanvas, (header.x-activeView.x)*scale, (header.y-activeView.y)*scale,
-                    header.width*scale, header.height*scale);
+  drawBlock(header, rgb, activeView);
   seen.add(header.blockId); verified++; receivedBytes += rgb.length; counters();
   $('view-state').textContent = 'Verificando bloques…';
   send('ACK', {viewId, transferId: header.transferId, hash});
 }
 
 function connect() {
+  // Una reconexión crea sesión y ventana nuevas; conserva solo la región elegida.
+  resumeView = current ? {imageId: current.imageId, level, magnification, x, y} : resumeView;
   const generation = ++epoch;
+  releasedBytes = 0; grantId = 0; grantsPaused = false;
+  $('pause-credit').disabled = true; $('pause-credit').textContent = 'Pausar devoluciones';
+  $('credit-available').textContent = '—'; $('credit-outstanding').textContent = '—';
+  $('credit-state').textContent = 'Esperando sesión';
   socket?.close(); clearTimeout(timer); sessionId = ''; current = null; viewId = 0;
   $('error').hidden = true; $('connection').textContent = 'Conectando…';
   $('view-state').textContent = 'Esperando sesión'; $('session').textContent = '—'; $('view-id').textContent = '—';
-  expected = 0; verified = 0; receivedBytes = 0; seen.clear(); counters();
+  resetCounters();
   context.clearRect(0, 0, canvas.width, canvas.height);
-  for (const id of ['image', 'level', 'fit', 'go', 'zoom-in', 'zoom-out']) $(id).disabled = true;
+  setControlsEnabled(false);
   if (!crypto.subtle) { error('Abre el visor en http://localhost para verificar SHA-256.'); return; }
   const ws = new WebSocket(`ws://${location.host}/ws`); socket = ws; ws.binaryType = 'arraybuffer';
   let chain = Promise.resolve(), queuedBytes = 0, failed = false;
@@ -160,19 +201,28 @@ function connect() {
     const size = typeof event.data === 'string' ? event.data.length * 2 : event.data.byteLength;
     queuedBytes += size;
     if (queuedBytes > 32 * 1024 * 1024) { failed = true; error('Capacidad de procesamiento excedida'); ws.close(); return; }
-    chain = chain.then(() => { if (!failed) return receive(event.data, generation); }).catch(failure => {
+    chain = chain.then(async () => {
+      if (failed || generation !== epoch) return;
+      await receive(event.data, generation);
+      // ACK verifica contenido; GRANT libera el mensaje procesado, incluso si era de una vista vieja.
+      // Un error de integridad cierra la sesión y no devuelve capacidad como si hubiera tenido éxito.
+      if (generation === epoch && typeof event.data !== 'string') {
+        releasedBytes += event.data.byteLength; grantCapacity();
+      }
+    }).catch(failure => {
       failed = true; // No dibujar más bloques de una conexión cuya integridad falló.
       if (generation === epoch) { error(failure.message); ws.close(); }
     }).finally(() => { queuedBytes -= size; });
   };
   ws.onclose = () => {
     if (generation !== epoch) return;
+    $('pause-credit').disabled = true; $('credit-state').textContent = 'Sesión cerrada';
     $('connection').textContent = 'Desconectado'; $('view-state').textContent = 'Conexión cerrada';
-    for (const id of ['image', 'level', 'fit', 'go', 'zoom-in', 'zoom-out']) $(id).disabled = true;
+    setControlsEnabled(false);
   };
   ws.onerror = () => { if (generation === epoch) error('No se pudo conectar con el servidor local.'); };
 }
-$('image').onchange = selectImage;
+$('image').onchange = () => selectImage();
 $('level').onchange = () => changeLevel(Number($('level').value));
 $('fit').onclick = fit; $('reconnect').onclick = connect;
 $('position').onsubmit = event => {
@@ -217,3 +267,10 @@ document.addEventListener('fullscreenchange', () => {
   $('fullscreen').textContent = document.fullscreenElement ? 'Salir de pantalla completa' : 'Pantalla completa';
 });
 connect();
+
+// Herramienta de demostración: detener solo las concesiones permite observar el agotamiento.
+$('pause-credit').onclick = () => {
+  grantsPaused = !grantsPaused;
+  $('pause-credit').textContent = grantsPaused ? 'Reanudar devoluciones' : 'Pausar devoluciones';
+  if (!grantsPaused) grantCapacity();
+};

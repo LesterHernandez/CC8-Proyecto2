@@ -13,6 +13,10 @@ final class PribSession {
     private final String sessionId = UUID.randomUUID().toString();
     private final ArrayDeque<Tile> pending = new ArrayDeque<>();
     private final Map<Integer, String> awaiting = new HashMap<>();
+    private final CreditWindow credit = new CreditWindow();
+    private PendingBlock ready; // A lo sumo un bloque preparado esperando crédito.
+    private String lastStatus = "";
+    private record PendingBlock(int id, String hash, byte[] data) { }
     private boolean hello, working, done;
     private int viewId, transferId, delivered;
     private PribServer.Prepared image;
@@ -30,12 +34,17 @@ final class PribSession {
             var catalog = server.images.values().stream().map(item -> Map.of(
                     "imageId", item.store().imageId, "name", item.name(), "width", item.store().width,
                     "height", item.store().height, "levels", item.store().levels)).toList();
-            send("IMAGE_INFO", Map.of("images", catalog, "blockSize", ImageStore.BLOCK));
+            send("IMAGE_INFO", Map.of("images", catalog, "blockSize", ImageStore.BLOCK, "maxBlockBytes", CreditWindow.MAX_PACKET, "maxCreditBytes", CreditWindow.MAX_CAPACITY));
             return;
         }
         if (!hello || !sessionId.equals(Json.text(message, "sessionId")))
             throw new IllegalArgumentException("Sesión no válida");
         switch (type) {
+            case "CREDIT_INIT" -> { credit.initialize(Json.integer(message, "capacityBytes")); status(); }
+            case "CREDIT_GRANT" -> {
+                credit.grant(counter(message, "grantId"), counter(message, "releasedBytes")); status();
+            }
+            case "CREDIT_STATUS" -> { lastStatus = ""; status(); }
             case "VIEW" -> view(message);
             case "ACK" -> {
                 int generation = Json.integer(message, "viewId");
@@ -63,7 +72,7 @@ final class PribSession {
             throw new IllegalArgumentException("Vista fuera de límites (máximo 3840 x 2160)");
         // Protección mínima de etapa 3: una vista nueva sustituye la lista pendiente.
         // La reutilización, prioridad avanzada y CANCEL explícito pertenecen a etapa 5.
-        viewId = nextView; image = requested; pending.clear(); awaiting.clear(); delivered = 0; done = false;
+        viewId = nextView; image = requested; pending.clear(); awaiting.clear(); delivered = 0; done = false; ready = null;
         for (int row = y / ImageStore.BLOCK; row <= (y + height-1) / ImageStore.BLOCK; row++)
             for (int col = x / ImageStore.BLOCK; col <= (x + width-1) / ImageStore.BLOCK; col++)
                 pending.add(new Tile(col, row, level));
@@ -72,10 +81,23 @@ final class PribSession {
     }
 
     /** Como máximo un bloque en preparación por sesión y una cola de red pequeña.
-     * Este límite fijo protege recursos; no implementa los créditos de etapa 4.
+     * El bloque se descuenta al encolarlo; cambiar de vista no devuelve bytes en tránsito.
      */
     void pump() {
-        if (!hello || working || client.closing || !client.output.isEmpty() || pending.isEmpty()) return;
+        if (!hello || working || client.closing || !client.output.isEmpty()) return;
+        if (ready != null) {
+            if (!credit.canSend(ready.data().length)) { status(); return; }
+            try { credit.debit(ready.data().length); }
+            catch (IllegalArgumentException invalid) { client.protocolError(invalid.getMessage()); return; }
+            awaiting.put(ready.id(), ready.hash());
+            client.enqueue(WebSocketFrames.frame(2, ready.data())); ready = null; delivered++;
+            if (pending.isEmpty() && !done) {
+                done = true; send("VIEW_DONE", Map.of("viewId", viewId, "blocks", delivered));
+            }
+            status(); return;
+        }
+        if (pending.isEmpty()) return;
+        if (!credit.initialized()) { status(); return; }
         if (awaiting.size() >= 1024) { client.protocolError("Demasiados bloques sin ACK"); return; }
         Tile tile = pending.peek(); int generation = viewId;
         PribServer.Prepared selected = image;
@@ -86,7 +108,7 @@ final class PribSession {
                 server.complete(() -> {
                     working = false;
                     if (!client.key.isValid() || client.closing || generation != viewId) return;
-                    int id = ++transferId; delivered++;
+                    int id = ++transferId;
                     Map<String, Object> header = new LinkedHashMap<>();
                     header.put("version", 1); header.put("type", "BLOCK_FULL"); header.put("sessionId", sessionId);
                     header.put("viewId", generation); header.put("transferId", id);
@@ -97,13 +119,13 @@ final class PribSession {
                     header.put("format", "RGB8"); header.put("codec", "RAW");
                     header.put("payloadLength", block.rgb().length); header.put("expectedHash", block.hash());
                     byte[] json = Json.encode(header).getBytes(StandardCharsets.UTF_8);
+                    if (json.length > 4096) { client.protocolError("Cabecera de bloque demasiado grande"); return; }
                     // Un mensaje binario PRIB = uint32 BE + cabecera JSON + RGB canónico.
                     ByteBuffer data = ByteBuffer.allocate(4 + json.length + block.rgb().length);
                     data.putInt(json.length).put(json).put(block.rgb());
-                    awaiting.put(id, block.hash()); client.enqueue(WebSocketFrames.frame(2, data.array()));
-                    if (pending.isEmpty() && !done) {
-                        done = true; send("VIEW_DONE", Map.of("viewId", viewId, "blocks", delivered));
-                    }
+                    // Conservar el mensaje exacto: 4 bytes + JSON UTF-8 + RGB.
+                    // El siguiente ciclo solo lo encolará si alcanza el crédito.
+                    ready = new PendingBlock(id, block.hash(), data.array());
                 });
             } catch (Exception error) {
                 server.complete(() -> {
@@ -114,6 +136,25 @@ final class PribSession {
             }
         });
         if (accepted) pending.remove(); else working = false; // Reintentar en el siguiente ciclo si el pool está lleno.
+    }
+
+    private static long counter(Map<String, Object> message, String field) {
+        if (message.get(field) instanceof Long value) return value;
+        throw new IllegalArgumentException("Falta contador: " + field);
+    }
+
+    /** Los controles siguen circulando aunque los datos estén detenidos.
+     * Solo publicar cambios evita llenar la cola durante una espera larga.
+     */
+    private void status() {
+        String state = !credit.initialized() ? "WAIT_INIT"
+                : ready != null && !credit.canSend(ready.data().length) ? "WAIT_CREDIT"
+                : pending.isEmpty() && ready == null && !working ? "IDLE" : "SENDING";
+        Map<String, Object> fields = Map.of("capacityBytes", credit.capacity(), "availableBytes", credit.available(),
+                "outstandingBytes", credit.outstanding(), "releasedBytes", credit.released(),
+                "grantId", credit.grantId(), "state", state);
+        String signature = Json.encode(fields);
+        if (!signature.equals(lastStatus)) { lastStatus = signature; send("CREDIT_STATUS", fields); }
     }
 
     private void send(String type, Map<String, ?> fields) {

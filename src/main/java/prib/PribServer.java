@@ -98,6 +98,17 @@ public final class PribServer implements AutoCloseable {
             workers.shutdownNow(); listener.close(); selector.close();
         }
     }
+    /** Limita también la llamada individual, conservando el resto para el siguiente turno.
+     * Restaurar limit en finally permite reanudar incluso después de una escritura parcial.
+     */
+    static int writeLimited(WritableByteChannel channel, ByteBuffer buffer, int budget) throws IOException {
+        int originalLimit = buffer.limit();
+        try {
+            buffer.limit(buffer.position() + Math.min(buffer.remaining(), budget));
+            return channel.write(buffer);
+        } finally { buffer.limit(originalLimit); }
+    }
+
     private void accept() throws IOException {
         SocketChannel socket = listener.accept(); if (socket == null) return;
         if (clients.size() >= 32) { socket.close(); return; }
@@ -215,7 +226,7 @@ public final class PribServer implements AutoCloseable {
             // Un máximo por vuelta evita que una conexión monopolice el hilo de red.
             int budget = 65536;
             while (!output.isEmpty() && budget > 0) {
-                ByteBuffer buffer = output.peek(); int written = socket.write(buffer); budget -= written;
+                ByteBuffer buffer = output.peek(); int written = writeLimited(socket, buffer, budget); budget -= written;
                 if (!buffer.hasRemaining()) output.remove(); else if (written == 0) break;
             }
             if (output.isEmpty()) { if (closing) drop(); else key.interestOps(SelectionKey.OP_READ); }
