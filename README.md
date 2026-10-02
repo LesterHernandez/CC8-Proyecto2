@@ -12,7 +12,7 @@ bloques, visor con zoom, SHA-256 y control por créditos. Probado con la imagen 
 
 - **JDK 21**, con `java` y `javac` disponibles en la terminal.
 - **PowerShell** y un navegador actualizado.
-- ZIP del curso dentro de `imagenes/`, sin descomprimir.
+- Los dos ZIP del curso dentro de `imagenes/`, sin descomprimir. Esa carpeta no viene al clonar: la [guía del equipo](docs/preparacion-equipo.md) incluye el enlace de descarga, los nombres y dónde colocarlos.
 
 No se necesitan Maven ni Node.js para ejecutar el visor. Con las herramientas
 y las imágenes disponibles, funciona sin internet.
@@ -21,6 +21,9 @@ Abre PowerShell en la raíz del proyecto, donde está este README.
 Todos los comandos siguientes se ejecutan desde allí.
 
 ## 2. Preparar una imagen — solo la primera vez
+
+Para tener las mismas seis imágenes del equipo, seguir la
+[guía de preparación compartida](docs/preparacion-equipo.md).
 
 **Si ya tienes imágenes preparadas en `data/`, pasa al paso 3.**
 
