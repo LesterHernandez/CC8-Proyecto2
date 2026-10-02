@@ -1,5 +1,8 @@
 # Etapa 3 — Servidor asíncrono y visor PRIB
 
+> Documento del cierre de etapa 3. El control por créditos y la recuperación de
+> sesión incorporados después se describen en [etapa-4.md](etapa-4.md).
+
 ## Alcance
 
 Conectamos los almacenes de etapa 2 con un servidor Java 21 y un visor HTML/CSS/JS.

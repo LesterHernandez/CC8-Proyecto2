@@ -16,7 +16,7 @@ todo el desarrollo; la etapa 8 integra y prepara la entrega final.
 | 1 | Base técnica y bloques verificables | Implementada y probada en imágenes pequeñas |
 | 2 | Preprocesamiento y almacenamiento de imágenes | Implementada y probada hasta la imagen de 17 GB |
 | 3 | Servidor y primera comunicación completa | Implementada; FULL y dos clientes probados con almacén de 17 GB |
-| 4 | Créditos y recuperación básica | Pendiente |
+| 4 | Créditos y recuperación básica | Implementada; agotamiento, reanudación y sesiones independientes verificados |
 | 5 | Reutilización, prioridades, caché y generaciones | Pendiente |
 | 6 | DELTA exacto y recuperación selectiva | Pendiente |
 | 7 | Evaluación con imágenes grandes y concurrencia | Pendiente |
@@ -65,6 +65,8 @@ sin créditos de datos y separar ACK de devolución de capacidad.
 **Cierre:** crédito agotado detiene datos; nueva capacidad reanuda la transmisión.
 No hay crédito negativo ni concesiones duplicadas. Una unidad máxima puede
 transmitirse bajo la configuración negociada y un cliente lento no detiene a otro.
+
+Implementación, reglas y pruebas en [etapa-4.md](etapa-4.md).
 
 ## 5. Reutilización, prioridades, caché y generaciones
 

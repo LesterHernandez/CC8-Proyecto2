@@ -3,9 +3,9 @@
 Proyecto de Redes (CC8): un servidor asíncrono en Java envía al navegador
 los bloques necesarios para explorar una imagen, sin descargarla completa.
 
-**Etapas 1, 2 y 3 terminadas:** preparación de imágenes, almacenamiento por
-bloques y visor con zoom y verificación SHA-256. Probado con la imagen de
-17 GB y dos clientes. Créditos, reutilización y DELTA quedan para las
+**Etapas 1 a 4 terminadas:** preparación de imágenes, almacenamiento por
+bloques, visor con zoom, SHA-256 y control por créditos. Probado con la imagen de
+17 GB y dos clientes. Reutilización y DELTA quedan para las
 [siguientes etapas](docs/plan-desarrollo.md).
 
 ## 1. Requisitos
@@ -101,6 +101,14 @@ Para ejecutar las pruebas automáticas:
 Deben terminar sin errores y mostrar mensajes `PASS`. Comprueban lectura PNG,
 almacenamiento y comunicación con dos clientes; no requieren los ZIP del curso.
 
+### Probar los créditos de etapa 4
+
+En **Mostrar transferencia**, pulsa **Pausar devoluciones** y cambia de región
+con la imagen de 17 GB al 100 %. El envío debe detenerse en **Esperando crédito**.
+Otra pestaña debe seguir funcionando. Pulsa **Reanudar devoluciones** para completar
+la vista. **Reconectar** crea una sesión nueva y vuelve a solicitar la región.
+[Reglas y prueba completa de etapa 4](docs/etapa-4.md).
+
 ## Carpetas y documentación
 
 | Carpeta | Contenido |
@@ -123,3 +131,7 @@ antes que no hayas elegido esa carpeta para guardar algún almacén preparado.
 - [Etapa 2: preparación y almacenamiento](docs/etapa-2.md).
 - [Pruebas manuales de preparación y consulta](docs/pruebas-manuales.md).
 - [Etapa 3: servidor, visor, protocolo y zoom](docs/etapa-3.md).
+
+- [Etapa 4: créditos y recuperación de sesión](docs/etapa-4.md).
+
+- [Pruebas opcionales de navegador](docs/pruebas-navegador.md): sesiones, zoom, visor y créditos.
