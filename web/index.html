@@ -6,6 +6,8 @@
   <title>PRIB · Visor de imágenes</title>
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/delta.js" defer></script>
+  <script src="/cache.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -41,8 +43,12 @@
       <p>Solo se solicitan los bloques que intersectan la región visible.</p>
       <dl>
         <dt>Bloques verificados</dt><dd id="blocks">0 / 0</dd>
-        <dt>RGB recibido en esta vista</dt><dd id="bytes">0 KB</dd>
-        <dt>Modo de envío</dt><dd>FULL</dd>
+        <dt>Payload recibido en esta vista</dt><dd id="bytes">0 KB</dd>
+        <dt>FULL / REUSE / REF / DELTA</dt><dd id="modes">0 / 0 / 0 / 0</dd>
+        <dt>Bytes PRIB de esta vista</dt><dd id="prib-bytes">0 KiB</dd>
+        <dt>RGB evitado</dt><dd id="saved-bytes">0 KiB</dd>
+        <dt>Caché RGB</dt><dd id="cache-bytes">0 / 16 MiB</dd>
+        <dt>Recuperaciones</dt><dd id="recoveries">0</dd>
         <dt>Integridad</dt><dd id="integrity">Pendiente</dd>
         <dt>Crédito disponible</dt><dd id="credit-available">—</dd>
         <dt>PRIB sin capacidad devuelta</dt><dd id="credit-outstanding">—</dd>
@@ -56,7 +62,7 @@
     </aside>
   </div>
   <p id="error" role="alert" hidden></p>
-  <footer>Etapa 4 · Servidor Java local · HTTP + WebSocket · Sin recursos externos</footer>
+  <footer>Etapa 7 · Servidor Java local · HTTP + WebSocket · Sin recursos externos</footer>
 </main>
 </body>
 </html>

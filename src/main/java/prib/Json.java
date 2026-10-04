@@ -60,7 +60,7 @@ public final class Json {
                     String key = string(); require(':'); spaces();
                     Object value = position < input.length() && input.charAt(position) == '"' ? string() : number();
                     if (out.putIfAbsent(key, value) != null) throw new IllegalArgumentException("Clave JSON repetida");
-                    if (out.size() > 20) throw new IllegalArgumentException("Demasiados campos");
+                    if (out.size() > 32) throw new IllegalArgumentException("Demasiados campos");
                 } while (take(','));
                 require('}');
             }

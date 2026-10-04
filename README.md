@@ -3,10 +3,13 @@
 Proyecto de Redes (CC8): un servidor asíncrono en Java envía al navegador
 los bloques necesarios para explorar una imagen, sin descargarla completa.
 
-**Etapas 1 a 4 terminadas:** preparación de imágenes, almacenamiento por
-bloques, visor con zoom, SHA-256 y control por créditos. Probado con la imagen de
-17 GB y dos clientes. Reutilización y DELTA quedan para las
-[siguientes etapas](docs/plan-desarrollo.md).
+**Etapas 1 a 7 implementadas:** preparación, almacenamiento, visor con zoom,
+SHA-256, créditos, caché limitada, prioridades, generaciones y los cuatro modos
+REUSE/REF/DELTA/FULL. DELTA es exacto y la recuperación selectiva reenvía solamente
+el bloque afectado. Los cuatro modos y los fallos se demuestran con pruebas sintéticas;
+la evaluación de etapa 7 pasó con seis imágenes, hasta 17 GB y cuatro clientes
+simultáneos. [Mediciones y reproducción](docs/etapa-7.md).
+[Plan de desarrollo](docs/plan-desarrollo.md).
 
 ## 1. Requisitos
 
@@ -112,6 +115,22 @@ Otra pestaña debe seguir funcionando. Pulsa **Reanudar devoluciones** para comp
 la vista. **Reconectar** crea una sesión nueva y vuelve a solicitar la región.
 [Reglas y prueba completa de etapa 4](docs/etapa-4.md).
 
+### Probar reutilización de etapa 5
+
+Con una imagen pequeña, espera Vista completa y pulsa Ir a la región otra vez.
+En Mostrar transferencia deben aparecer bloques REUSE y menos bytes PRIB.
+La caché conserva hasta 16 MiB; volver a regiones expulsadas requiere FULL.
+REF reutiliza contenido idéntico de otro bloque; las pruebas sintéticas lo demuestran.
+[Protocolo, prioridades, caché y prueba de etapa 5](docs/etapa-5.md).
+
+### Probar DELTA y recuperación de etapa 6
+
+El panel muestra los cuatro modos y las recuperaciones. El servidor busca hasta
+cuatro bases similares y usa DELTA solo si su coste completo ahorra al menos 15 %
+y 256 bytes frente a FULL. Un fallo semántico solicita FULL únicamente del objetivo,
+con dos reintentos máximos. No hace falta preparar nuevamente las imágenes.
+[Formato, mensajes y demostración reproducible de etapa 6](docs/etapa-6.md).
+
 ## Carpetas y documentación
 
 | Carpeta | Contenido |
@@ -137,4 +156,16 @@ antes que no hayas elegido esa carpeta para guardar algún almacén preparado.
 
 - [Etapa 4: créditos y recuperación de sesión](docs/etapa-4.md).
 
+- [Etapa 5: reutilización, prioridades, caché y generaciones](docs/etapa-5.md).
+
+- [Etapa 6: DELTA exacto y recuperación selectiva](docs/etapa-6.md).
+
 - [Pruebas opcionales de navegador](docs/pruebas-navegador.md): sesiones, zoom, visor y créditos.
+
+## Evaluación de recursos y concurrencia
+
+Con Node, Chrome y Playwright previamente instalados, ejecutar
+`./scripts/evaluar.ps1`. Genera mediciones JSON/CSV de bytes por modo, ahorro,
+latencia, caché, memoria del servidor, créditos, cancelaciones y recuperación.
+La [evidencia de etapa 7](docs/etapa-7.md) declara alcance y límites;
+la consolidación y demostración final de etapa 8 siguen pendientes.

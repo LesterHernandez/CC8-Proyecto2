@@ -73,6 +73,7 @@ public final class PribServerTest {
                     check(invalid.next().toString().contains("ERROR"), "Rechazar versión no soportada");
                 }
                 creditTests(http, server.port(), first);
+                reuseTests(http, server.port(), first, second);
                 System.out.println("PASS HTTP local, rutas restringidas y controles inválidos");
             } finally { server.close(); thread.join(5000); check(!thread.isAlive(), "Cierre del servidor"); }
         }
@@ -84,7 +85,7 @@ public final class PribServerTest {
     private static void creditTests(HttpClient http, int port, ImageStore image) throws Exception {
         try (Peer slow = new Peer(http, port); Peer fast = new Peer(http, port)) {
             slow.hello(false); fast.hello();
-            slow.view(image, 1, 0, 0, 0, 320, 128);
+            slow.view(image, 1, 0, 0, 0, 256, 256);
             creditStatus(slow, "WAIT_INIT"); noData(slow);
             slow.send("CREDIT_INIT", Map.of("capacityBytes", CreditWindow.MAX_PACKET));
             byte[] one = nextBlock(slow);
@@ -127,6 +128,53 @@ public final class PribServerTest {
         }
         System.out.println("PASS créditos: pausa, reanudación, duplicados, ACK separado, vistas, cliente lento y sesión nueva");
     }
+    private static void reuseTests(HttpClient http, int port, ImageStore first, ImageStore second) throws Exception {
+        try (Peer cached = new Peer(http, port); Peer independent = new Peer(http, port)) {
+            cached.caching = true; cached.hello(); independent.hello();
+            cached.view(first, 1, 0, 0, 0, 320, 260); cached.finish(first, 1, 0, 0, 0, 320, 260);
+            int initialBytes = Json.integer(cached.summary, "pribBytes");
+            check(Json.integer(cached.summary, "full") == 9, "Primera vista FULL");
+            cached.view(first, 2, 0, 0, 0, 320, 260); cached.finish(first, 2, 0, 0, 0, 320, 260);
+            check(Json.integer(cached.summary, "reuse") == 9 && Json.integer(cached.summary, "full") == 0, "Volver a región usa REUSE");
+            check(Json.integer(cached.summary, "pribBytes") < initialBytes/10, "Ahorro medido frente a FULL");
+            cached.view(second, 3, 0, 0, 0, 320, 260); cached.finish(second, 3, 0, 0, 0, 320, 260);
+            check(Json.integer(cached.summary, "ref") == 9, "Otra identidad con RGB idéntico usa REF");
+            independent.view(second, 1, 0, 0, 0, 320, 260); independent.finish(second, 1, 0, 0, 0, 320, 260);
+            check(Json.integer(independent.summary, "full") == 9, "Inventario independiente por cliente");
+            cached.send("CACHE_STATE", Map.of("cacheSeq", ++cached.cacheSeq, "operation", "CLEAR")); cached.cached.clear();
+            cached.view(first, 4, 0, 0, 0, 128, 128); cached.finish(first, 4, 0, 0, 0, 128, 128);
+            check(Json.integer(cached.summary, "full") == 1, "Inventario vaciado requiere FULL");
+        }
+        try (Peer slow = new Peer(http, port)) {
+            slow.hello(false); slow.send("CREDIT_INIT", Map.of("capacityBytes", CreditWindow.MAX_PACKET));
+            slow.view(first, 1, 0, 0, 0, 256, 256);
+            byte[] packet = nextBlock(slow); creditStatus(slow, "WAIT_CREDIT");
+            slow.send("CANCEL", Map.of("viewId", 1));
+            Map<String, Object> cancelled;
+            do { cancelled = Json.parse(slow.next().toString()); }
+            while (!Json.text(cancelled, "type").equals("CANCELLED"));
+            check(Json.integer(cancelled, "outstandingBytes") == packet.length, "CANCEL no devuelve crédito en tránsito");
+            noData(slow);
+            slow.released = packet.length; slow.grantId = 1;
+            slow.send("CREDIT_GRANT", Map.of("grantId", 1, "releasedBytes", packet.length));
+            slow.view(first, 2, 0, 256, 256, 64, 4); slow.finish(first, 2, 0, 256, 256, 64, 4);
+        }
+        // Con saldo insuficiente para FULL, una referencia pequeña elegible aún progresa.
+        try (Peer eligible = new Peer(http, port)) {
+            eligible.hello(false); eligible.send("CREDIT_INIT", Map.of("capacityBytes", CreditWindow.MAX_PACKET));
+            eligible.view(first, 1, 0, 0, 0, 128, 128);
+            byte[] data = nextBlock(eligible); Map<String, Object> header = blockHeader(data);
+            eligible.send("CACHE_STATE", Map.of("cacheSeq", 1, "operation", "PUT", "imageId", first.imageId,
+                    "blockId", "0:0:0", "width", 128, "height", 128, "hash", Json.text(header, "expectedHash")));
+            eligible.view(first, 2, 0, 0, 0, 256, 128);
+            byte[] reference = nextBlock(eligible);
+            check(Json.text(blockHeader(reference), "mode").equals("REUSE") && reference.length < 4096, "Referencia elegible con saldo pequeño");
+            Map<String, Object> state = creditStatus(eligible, "WAIT_CREDIT");
+            check(Json.integer(state, "outstandingBytes") == data.length+reference.length, "REF consume bytes PRIB exactos");
+        }
+        System.out.println("PASS etapa 5: FULL/REUSE/REF, ahorro, inventario aislado, CLEAR, CANCEL y referencia elegible");
+    }
+
     private static Map<String, Object> blockHeader(byte[] bytes) {
         ByteBuffer data = ByteBuffer.wrap(bytes); byte[] header = new byte[data.getInt()]; data.get(header);
         return Json.parse(WebSocketFrames.utf8(header));
@@ -212,10 +260,11 @@ public final class PribServerTest {
         ByteArrayOutputStream out = new ByteArrayOutputStream(); for (byte[] a : arrays) out.writeBytes(a); return out.toByteArray();
     }
 
-    private static final class Peer implements WebSocket.Listener, AutoCloseable {
+    static final class Peer implements WebSocket.Listener, AutoCloseable {
         final BlockingQueue<Object> received = new LinkedBlockingQueue<>();
         final StringBuilder text = new StringBuilder(); final ByteArrayOutputStream binary = new ByteArrayOutputStream();
-        final WebSocket socket; String session = ""; long released, grantId;
+        final WebSocket socket; String session = ""; long released, grantId, cacheSeq;
+        boolean caching; Map<String, byte[]> cached = new HashMap<>(); Map<String, Object> summary;
         Peer(HttpClient client, int port) {
             socket = client.newWebSocketBuilder().connectTimeout(Duration.ofSeconds(5))
                     .buildAsync(URI.create("ws://localhost:"+port+"/ws"), this).join();
@@ -262,7 +311,7 @@ public final class PribServerTest {
                     if (Json.text(message, "type").equals("VIEW_ACCEPTED")) expected = Json.integer(message, "blocks");
                     if (Json.text(message, "type").equals("VIEW_DONE")) {
                         int actual = ((x+width-1)/128-x/128+1)*((y+height-1)/128-y/128+1);
-                        check(expected == actual && seen.size()==actual, "Solo bloques intersectados, sin faltantes"); return;
+                        check(expected == actual && seen.size()==actual, "Solo bloques intersectados, sin faltantes"); summary = message; return;
                     }
                 } else {
                     released += ((byte[])item).length;
@@ -275,9 +324,23 @@ public final class PribServerTest {
                     int bx = Json.integer(message, "x"), by = Json.integer(message, "y");
                     check(bx < x+width && by < y+height && bx+128 > x && by+128 > y, "No enviar región ajena");
                     byte[] rgb = new byte[data.remaining()]; data.get(rgb);
+                    String mode = Json.text(message, "mode");
+                    if (!mode.equals("FULL")) {
+                        check(rgb.length == 0, "REF sin payload RGB");
+                        rgb = cached.get(Json.text(message, "baseImageId") + "/" + Json.text(message, "baseId"));
+                        check(rgb != null, "Base materializada para referencia");
+                    }
                     ImageStore.Block block = store.readBlock(level, bx/128, by/128);
                     check(Arrays.equals(rgb, block.rgb()) && block.hash().equals(Json.text(message, "expectedHash")), "RGB y hash exactos");
                     check(seen.add(Json.text(message, "blockId")), "Sin duplicados");
+                    if (caching) {
+                        String blockId = Json.text(message, "blockId"), key = store.imageId + "/" + blockId;
+                        if (!cached.containsKey(key)) {
+                            cached.put(key, rgb);
+                            send("CACHE_STATE", Map.of("cacheSeq", ++cacheSeq, "operation", "PUT", "imageId", store.imageId,
+                                    "blockId", blockId, "width", block.width(), "height", block.height(), "hash", block.hash()));
+                        }
+                    }
                     send("ACK", Map.of("viewId", id, "transferId", Json.integer(message, "transferId"), "hash", block.hash()));
                 }
             }

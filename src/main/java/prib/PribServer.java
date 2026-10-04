@@ -20,7 +20,7 @@ public final class PribServer implements AutoCloseable {
     private final Map<String, byte[]> assets = new HashMap<>();
     private final Selector selector;
     private final ServerSocketChannel listener;
-    private final Set<Client> clients = new HashSet<>();
+    private final ArrayDeque<Client> clients = new ArrayDeque<>();
     private final ConcurrentLinkedQueue<Runnable> completions = new ConcurrentLinkedQueue<>();
     private final ThreadPoolExecutor workers = new ThreadPoolExecutor(4, 4, 0, TimeUnit.SECONDS,
             new ArrayBlockingQueue<>(32), new ThreadPoolExecutor.AbortPolicy());
@@ -40,7 +40,7 @@ public final class PribServer implements AutoCloseable {
         }
         if (images.isEmpty()) throw new IOException("No hay imágenes preparadas en " + data);
         if (images.size() > 100) throw new IOException("Máximo 100 imágenes en el catálogo de esta etapa");
-        for (String name : List.of("index.html", "app.js", "style.css", "icon.svg")) {
+        for (String name : List.of("index.html", "delta.js", "cache.js", "app.js", "style.css", "icon.svg")) {
             Path file = web.resolve(name);
             if (Files.size(file) > 524288) throw new IOException("Recurso web demasiado grande");
             assets.put("/" + name, Files.readAllBytes(file));
@@ -79,7 +79,8 @@ public final class PribServer implements AutoCloseable {
                     catch (IOException disconnected) { client.drop(); }
                 }
                 long now = System.nanoTime();
-                for (Client client : List.copyOf(clients)) {
+                for (int turn = clients.size(); turn > 0; turn--) {
+                    Client client = clients.removeFirst(); clients.addLast(client);
                     // Límites de tiempo para cabeceras incompletas y conexiones que no responden.
                     long timeout = client.websocket ? 60_000_000_000L : 10_000_000_000L;
                     if (now - client.lastRead > timeout || (client.closing && now - client.closeStarted > 2_000_000_000L)) {
@@ -92,6 +93,7 @@ public final class PribServer implements AutoCloseable {
                         client.session.pump();
                     }
                 }
+                if (!clients.isEmpty()) clients.addLast(clients.removeFirst());
             }
         } finally {
             for (Client client : List.copyOf(clients)) client.drop();

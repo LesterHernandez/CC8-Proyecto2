@@ -16,9 +16,15 @@ try {
     # Contabilidad de bytes y concesiones acumulativas de etapa 4.
     java -Xmx256m -cp build/classes prib.CreditWindowTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de créditos' }
+    java -Xmx256m -cp build/classes prib.ClientCacheTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de caché y prioridades' }
+    java -Xmx256m -cp build/classes prib.DeltaCodecTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas DELTA y firmas' }
     # Servidor temporal en un puerto libre y dos clientes WebSocket reales.
     java -Xmx256m -cp build/classes prib.PribServerTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de red PRIB' }
+    java -Xmx256m -cp build/classes prib.DeltaProtocolTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas DELTA/RECOVER por red' }
 } finally {
     Pop-Location # Restaurar la ubicación de quien invocó el script.
 }

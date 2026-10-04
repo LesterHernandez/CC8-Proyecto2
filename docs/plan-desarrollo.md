@@ -17,9 +17,9 @@ todo el desarrollo; la etapa 8 integra y prepara la entrega final.
 | 2 | Preprocesamiento y almacenamiento de imágenes | Implementada y probada hasta la imagen de 17 GB |
 | 3 | Servidor y primera comunicación completa | Implementada; FULL y dos clientes probados con almacén de 17 GB |
 | 4 | Créditos y recuperación básica | Implementada; agotamiento, reanudación y sesiones independientes verificados |
-| 5 | Reutilización, prioridades, caché y generaciones | Pendiente |
-| 6 | DELTA exacto y recuperación selectiva | Pendiente |
-| 7 | Evaluación con imágenes grandes y concurrencia | Pendiente |
+| 5 | Reutilización, prioridades, caché y generaciones | Implementada; REUSE/REF/FULL, caché limitada, prioridades y CANCEL verificados |
+| 6 | DELTA exacto y recuperación selectiva | Implementada; cuatro modos, firmas acotadas y RECOVER a FULL verificados |
+| 7 | Evaluación con imágenes grandes y concurrencia | Implementada; seis imágenes, hasta 17 GB, cuatro clientes, recursos y recuperación medidos |
 | 8 | Documentación y demostración final | Pendiente; documentación incremental iniciada |
 
 ## 1. Base técnica y prueba de bloques
@@ -78,6 +78,8 @@ Proteger bases activas y contabilizar los datos que siguen en tránsito.
 trabajo obsoleto sin dibujar bloques incorrectos ni liberar créditos antes de tiempo.
 Memoria limitada y progreso de bloques elegibles. Completa el nivel A de la propuesta.
 
+Implementación, contrato y pruebas en [etapa-5.md](etapa-5.md).
+
 ## 6. DELTA exacto y recuperación selectiva
 
 **Trabajo:** probar una técnica diferencial lossless, firmas de similitud e índice
@@ -87,6 +89,8 @@ DELTA frente a FULL. Verificar SHA-256, proteger dependencias y limitar reintent
 **Cierre:** demostrar REUSE, REF, DELTA y FULL. Provocar BASE_MISSING, HASH_MISMATCH,
 DELTA_FAILED y desajustes de caché, recuperando el bloque correcto. Usar FULL si
 DELTA no ahorra lo suficiente. Sin cadenas pendientes de reconstrucción.
+
+Implementación, formato diferencial y pruebas en [etapa-6.md](etapa-6.md).
 
 ## 7. Imágenes grandes, recursos y concurrencia
 
@@ -98,6 +102,8 @@ mediciones, incluyendo clientes lentos, desconexiones y navegación prolongada.
 **Cierre:** imagen objetivo navegable con números legibles, recursos acotados y
 resultados reproducibles sin internet. La imagen de 24 GB es referencia de prueba
 inicial del curso, no meta final; el tamaño máximo demostrado se reportará honestamente.
+
+Mediciones, límites y reproducción en [etapa-7.md](etapa-7.md).
 
 ## 8. Documentación y demostración final
 

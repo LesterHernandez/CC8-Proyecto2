@@ -1,5 +1,8 @@
 # Etapa 4 — Créditos y recuperación de sesión
 
+> Documento del cierre de etapa 4. El protocolo actual agrega reutilización,
+> caché y concesiones agrupadas; consultar [etapa 5](etapa-5.md).
+
 ## Qué se implementó
 
 Cada sesión dispone de una ventana de bytes para recibir bloques FULL. El

@@ -107,7 +107,7 @@ niveles distintos. Sus dimensiones aparecen en `image.properties` como
 Las consultas leen solo los bloques necesarios, verifican sus hashes y no
 necesitan volver a abrir el ZIP. Cada nivel tiene un archivo `.pack` de datos y
 un `.idx` para localizar los bloques. Si una preparación falla, `INCOMPLETE`
-impide usar el almacén parcial. Los detalles están en [etapa-2.md](docs/etapa-2.md).
+impide usar el almacén parcial. Los detalles están en [etapa-2.md](etapa-2.md).
 
 ### Qué se puede limpiar
 

@@ -62,29 +62,38 @@ public final class ImageStore {
     /** RGB canónico: sin cabecera ni alfa. Geometría y hash identifican su contenido. */
     public record Block(int width, int height, byte[] rgb, String hash) { }
 
-    public Block readBlock(int level, int column, int row) throws IOException {
+    /** Metadatos de un único bloque; no carga píxeles ni el índice completo. */
+    public record Descriptor(int width, int height, long offset, int size, int codec, String hash) { }
+
+    public Descriptor describe(int level, int column, int row) throws IOException {
         int w = width(level), h = height(level);
         int columns = (w - 1) / BLOCK + 1, rows = (h - 1) / BLOCK + 1;
         if (column < 0 || column >= columns || row < 0 || row >= rows)
             throw new IllegalArgumentException("Bloque fuera de la imagen");
         int bw = Math.min(BLOCK, w - column * BLOCK), bh = Math.min(BLOCK, h - row * BLOCK);
         int rawLength = bw * bh * 3;
-        // Se consulta solo un registro. Los offsets long soportan packs mayores de 2 GB.
-        try (RandomAccessFile index = new RandomAccessFile(indexPath(directory, level).toFile(), "r");
-             RandomAccessFile pack = new RandomAccessFile(dataPath(directory, level).toFile(), "r")) {
+        try (RandomAccessFile index = new RandomAccessFile(indexPath(directory, level).toFile(), "r")) {
             if (index.length() != (long) columns * rows * RECORD_BYTES)
                 throw new IOException("Índice incompleto o de tamaño incorrecto");
             index.seek(((long) row * columns + column) * RECORD_BYTES);
             long offset = index.readLong();
             int size = index.readInt(), codec = index.readInt();
             byte[] hash = new byte[32]; index.readFully(hash);
-            if (offset < 0 || size <= 0 || size > rawLength || offset > pack.length() - size
+            if (offset < 0 || size <= 0 || size > rawLength
                     || (codec != 0 && codec != 1) || (codec == 0 && size != rawLength))
                 throw new IOException("Registro de bloque inválido");
-            byte[] encoded = new byte[size]; pack.seek(offset); pack.readFully(encoded);
-            byte[] rgb = codec == 0 ? encoded : inflate(encoded, rawLength);
-            if (!MessageDigest.isEqual(hash, sha256(rgb))) throw new IOException("SHA-256 incorrecto");
-            return new Block(bw, bh, rgb, HexFormat.of().formatHex(hash));
+            return new Descriptor(bw, bh, offset, size, codec, HexFormat.of().formatHex(hash));
+        }
+    }
+
+    public Block readBlock(int level, int column, int row) throws IOException {
+        Descriptor info = describe(level, column, row);
+        try (RandomAccessFile pack = new RandomAccessFile(dataPath(directory, level).toFile(), "r")) {
+            if (info.offset() > pack.length() - info.size()) throw new IOException("Pack incompleto");
+            byte[] encoded = new byte[info.size()]; pack.seek(info.offset()); pack.readFully(encoded);
+            byte[] rgb = info.codec() == 0 ? encoded : inflate(encoded, info.width() * info.height() * 3);
+            if (!info.hash().equals(HexFormat.of().formatHex(sha256(rgb)))) throw new IOException("SHA-256 incorrecto");
+            return new Block(info.width(), info.height(), rgb, info.hash());
         }
     }
 
