@@ -1,168 +1,70 @@
 # PRIB — Visor de imágenes de alta resolución
 
-Proyecto de Redes (CC8): un servidor asíncrono en Java envía al navegador
-los bloques necesarios para explorar una imagen, sin descargarla completa.
+Proyecto CC8 finalizado y funcional. Un servidor Java
+asíncrono entrega los bloques necesarios para explorar imágenes grandes. PRIB usa
+FULL/REUSE/REF/DELTA, SHA-256, créditos, caché limitada, prioridades y recuperación.
+Se comprobó navegación hasta **55 GB con cuatro clientes simultáneos**.
 
-**Etapas 1 a 7 implementadas:** preparación, almacenamiento, visor con zoom,
-SHA-256, créditos, caché limitada, prioridades, generaciones y los cuatro modos
-REUSE/REF/DELTA/FULL. DELTA es exacto y la recuperación selectiva reenvía solamente
-el bloque afectado. Los cuatro modos y los fallos se demuestran con pruebas sintéticas;
-la evaluación documentada de etapa 7 pasó con ocho imágenes, hasta 55 GB y cuatro clientes
-simultáneos. [Pruebas y resultados](docs/pruebas.md#resultados-del-5-de-octubre-de-2026).
-[Plan de desarrollo](docs/plan-desarrollo.md).
+## Requisitos e inicio
 
-## 1. Requisitos
+En la PC servidora: **JDK 21** (`java` y `javac` en el PATH), PowerShell y el proyecto.
+Para visualizar: navegador actualizado. No se necesita Maven ni Node.js para usarlo.
+Todos los comandos se ejecutan desde la raíz del repositorio.
 
-- **JDK 21**, con `java` y `javac` disponibles en la terminal.
-- **PowerShell** y un navegador actualizado.
-- Los ZIP de las imágenes que se quieran preparar dentro de `imagenes/`, sin descomprimir. Esa carpeta no viene al clonar: la [guía del equipo](docs/preparacion-equipo.md) incluye el enlace de descarga, los nombres y dónde colocarlos.
-
-No se necesitan Maven ni Node.js para ejecutar el visor. Con las herramientas
-y las imágenes disponibles, funciona sin internet.
-
-Abre PowerShell en la raíz del proyecto, donde está este README.
-Todos los comandos siguientes se ejecutan desde allí.
-
-## 2. Preparar una imagen — solo la primera vez
-
-Para tener las cuatro imágenes actuales (4, 17, 28 y 55 GB), seguir la
-[guía de preparación compartida](docs/preparacion-equipo.md).
-
-**Si ya tienes imágenes preparadas en `data/`, pasa al paso 3.**
-
-También puedes iniciar el servidor sin imágenes y pulsar **Preparar imagen** en
-la web: elige un ZIP de `imagenes/`, una **imagen local** o una **URL directa**
-pública HTTP/HTTPS a la imagen, y un nombre nuevo. Verás el
-avance y aparecerá en el selector al terminar, sin reiniciar.
-PNG conserva el lector por filas para imágenes enormes. JPEG, GIF y BMP se
-identifican por su firma, con límites de 64 MiB de archivo y 16 millones de
-píxeles; GIF utiliza el primer fotograma.
-Los comandos siguientes siguen disponibles como alternativa.
-
-Para comenzar con la imagen pequeña del curso:
-
-```powershell
-./scripts/preparar.ps1 -Output 'data/imagen-782'
-```
-
-El comando busca el ZIP pequeño y prepara `000-001-800-5105.png`.
-`data/imagen-782` es la **carpeta de destino**, no el nombre de la imagen.
-Puedes elegir otro nombre; debe ser una carpeta nueva dentro de `data/`.
-
-Para preparar otra imagen:
-
-```powershell
-./scripts/preparar.ps1 -Zip 'imagenes/Imagenes-28G-17G.zip' -Entry '017-110-000-24650032.png' -Output 'data/imagen-17gb'
-```
-
-| Parámetro | Qué representa |
-| --- | --- |
-| `-Zip` | Ruta del ZIP que contiene la imagen |
-| `-Entry` | Nombre exacto del PNG dentro del ZIP |
-| `-Output` | Carpeta nueva donde guardar la imagen preparada |
-
-La preparación de imágenes grandes puede tardar varios minutos. No hace falta
-repetirla cada vez que se abre el visor.
-
-## 3. Iniciar el visor
+**Solo localhost:**
 
 ```powershell
 ./scripts/servidor.ps1
 ```
 
-Mantén esa terminal abierta y entra a **[http://localhost:8080](http://localhost:8080)**.
-Para detener el servidor, presiona **Ctrl+C** en la terminal.
+Abrir [http://localhost:8080](http://localhost:8080). Mantener la terminal abierta;
+Ctrl+C detiene el servidor. Si no hay imágenes, usar **Preparar imagen** según la
+[guía de preparación](docs/preparacion-equipo.md). Los ZIP y `data/` no vienen por Git.
 
-Si el puerto está ocupado, usa `./scripts/servidor.ps1 -Port 8081` y abre
-`http://localhost:8081`. El servidor funciona únicamente en el equipo local.
-
-Después de actualizar el código o preparar imágenes desde la terminal, reinicia
-el servidor. Las preparadas desde la web se incorporan automáticamente.
-Si el navegador sigue mostrando la versión anterior, usa **Ctrl+F5**.
-
-## 4. Explorar la imagen
-
-| Control | Uso |
-| --- | --- |
-| Imagen preparada | Seleccionar qué imagen explorar |
-| Rueda o botones **+ / −** | Acercar y alejar; la rueda toma como referencia el cursor |
-| Arrastrar | Desplazarse por la imagen |
-| Nivel de detalle | El nivel 0 conserva la resolución original; los demás son versiones reducidas |
-| X / Y e **Ir a la región** | Saltar a unas coordenadas en píxeles del nivel seleccionado |
-| **Ver imagen completa** | Volver a la vista general |
-| **Mostrar transferencia** | Revisar bloques, bytes, integridad y sesión |
-| **Pantalla completa** | Ampliar el visor; salir con Escape |
-| **Reconectar** | Iniciar una sesión nueva |
-| **Preparar imagen** | Elegir ZIP, archivo local o URL (PNG/JPEG/GIF/BMP) y consultar el progreso |
-
-El zoom puede superar el 100 % para ver los números más grandes: amplía los
-píxeles originales sin añadir información. Solo se solicitan los bloques
-que intersectan la región visible.
-
-## 5. Comprobar que funciona
-
-1. Selecciona una imagen, acerca a **400 %** y arrastra hacia otra zona.
-2. Abre **Mostrar transferencia**. Al terminar deben aparecer **Vista completa**,
-   los bloques recibidos y esperados coincidentes, y **SHA-256 correcto**.
-3. Abre otra pestaña y explora una región distinta. Las sesiones deben ser
-   diferentes y cada pestaña debe funcionar de forma independiente.
-4. Prueba cambiar el tamaño de la ventana, entrar en pantalla completa
-   y volver con **Ver imagen completa**.
-
-Para ejecutar las pruebas automáticas:
+**Compartir por Radmin VPN:**
 
 ```powershell
-./scripts/test.ps1
+./scripts/servidor.ps1 -Red
 ```
 
-Deben terminar sin errores y mostrar mensajes `PASS`. Comprueban lectura PNG,
-almacenamiento y comunicación con dos clientes; no requieren los ZIP del curso.
+Iniciar Radmin antes del servidor. Localhost sigue disponible; el otro equipo abre
+`http://IP-RADMIN-DEL-SERVIDOR:8080`, sustituyendo el texto por la IP real.
+Configurar **TCP 8080** en el Firewall según la
+[guía de Radmin](docs/preparacion-equipo.md#uso-entre-dos-pcs-con-radmin-vpn).
+El cliente remoto solo necesita Radmin y navegador.
 
-Para comprobar créditos, reutilización, clientes independientes, DELTA y recuperación,
-seguir la [guía de pruebas](docs/pruebas.md). También incluye las pruebas opcionales
-de navegador, la evaluación completa y los resultados con imágenes de hasta 55 GB.
+Opciones: `-Port 8081` cambia el puerto y `-Data 'ruta/al/catalogo'` el directorio
+de almacenes. Tras actualizar código, reiniciar y recargar con Ctrl+F5.
+Si PowerShell bloquea el inicio, usar
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\servidor.ps1`
+y añadir `-Red` si corresponde; el permiso solo afecta ese proceso.
 
-## Carpetas y documentación
+## Uso
 
-| Carpeta | Contenido |
+Elegir imagen, ampliar con rueda o +/− y arrastrar. **Ver imagen completa** vuelve
+al encuadre general; X/Y solicita una región del nivel elegido. Nivel 0 conserva
+el original y ampliar más del 100 % agranda píxeles, sin añadir detalle.
+
+**Mostrar transferencia** separa vista y sesión. Se espera **Vista completa** y
+**SHA-256 correcto**. La sesión abreviada permite seguir al cliente en los logs de
+la terminal. **Reconectar** crea otra sesión y reinicia caché y créditos.
+
+Todo el visor funciona sin Internet con herramientas y datos disponibles.
+La demostración desconectada usa localhost y varias pestañas; descargar ZIP,
+preparar una URL pública o establecer la VPN requiere la conectividad correspondiente.
+
+## Organización y guías
+
+| Ruta | Contenido |
 | --- | --- |
-| `src/` | Código Java y pruebas |
-| `web/` | Interfaz del visor |
-| `scripts/` | Comandos de preparación, ejecución y pruebas |
-| `imagenes/` | ZIP originales |
-| `data/` | Imágenes preparadas; conservarlas para no repetir la preparación |
-| `output/` | Resultados de pruebas y regiones exportadas |
-| `build/` | Compilación y pruebas temporales |
-| `docs/` | Plan, detalles técnicos y evidencia |
+| src/main/java/prib/ y src/test/java/prib/ | Implementación y pruebas Java |
+| web/ y scripts/ | Visor, dependencias locales y comandos |
+| imagenes/ y data/ | ZIP y almacenes preparados; excluidos de Git |
+| build/ y output/ | Compilación, pruebas y exportaciones regenerables; excluidos de Git |
+| docs/mediciones/ | Evidencias de ejecuciones identificadas |
 
-Los ZIP, imágenes preparadas y temporales no se suben a GitHub. Se conserva
-únicamente el JSON de referencia de la evaluación documentada en `docs/mediciones/`.
-Puedes limpiar los resultados de `output/` si no los necesitas; comprueba
-antes que no hayas elegido esa carpeta para guardar algún almacén preparado.
-
-| Documento | Para qué leerlo |
-| --- | --- |
-| [Preparación del equipo](docs/preparacion-equipo.md) | ZIP y preparación desde web o terminal de 4, 17, 28 y 55 GB |
-| [Plan de desarrollo](docs/plan-desarrollo.md) | Consultar las ocho etapas y su estado |
-| [Protocolo y arquitectura](docs/protocolo.md) | Entender mensajes, almacenamiento, algoritmos, créditos y caché |
-| [Pruebas y resultados](docs/pruebas.md) | Probar manualmente, ejecutar verificaciones y consultar mediciones |
-
-## Entregables locales de etapa 8
-
-Se conservan el [documento PRIB anterior](docs/protocolo-prib.md),
-la [guía de demostración](docs/demostracion.md), el [cierre local](docs/etapa-8.md)
-y el [Word para Google Docs](docs/PRIB-Protocolo-y-Demostracion.docx).
-Estos entregables se generaron antes de incorporar la preparación web y las
-nuevas mediciones de 55 GB; el contrato actualizado está en docs/protocolo.md.
-
-La demostración local pequeña usa JDK, Node, Chrome y Playwright ya instalados:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo.ps1
-```
-
-Si PowerShell bloquea el servidor por falta de firma digital:
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\servidor.ps1
-```
+- [Preparación del equipo](docs/preparacion-equipo.md): imágenes, formatos, espacio, Radmin y Firewall.
+- [Protocolo](docs/protocolo.md): funcionamiento y límites de PRIB.
+- [Pruebas](docs/pruebas.md): comandos, herramientas y resultados.
+- [Demostración](docs/demostracion.md): recorrido manual y cuatro modos reproducibles.
+- [Plan de desarrollo](docs/plan-desarrollo.md): las ocho etapas realizadas.
