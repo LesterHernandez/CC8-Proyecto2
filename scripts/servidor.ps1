@@ -7,7 +7,7 @@ try {
     $sources = Get-ChildItem src/main/java/prib/*.java | Select-Object -ExpandProperty FullName
     javac -encoding UTF-8 -d build/classes $sources
     if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación' }
-    # La preparación se hace antes con preparar.ps1; el servidor solo consulta los almacenes.
+    # También permite preparar ZIP desde la web, en un proceso separado del visor.
     java -Xmx256m -cp build/classes prib.PribServer $Port $Data
     if ($LASTEXITCODE -ne 0) { throw 'El servidor terminó con error' }
 } finally { Pop-Location }

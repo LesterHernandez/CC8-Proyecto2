@@ -90,6 +90,7 @@ function scheduleView() { clearTimeout(timer); timer = setTimeout(requestView, 1
 function selectImage(fitView = true) {
   current = images.find(item => item.imageId === $('image').value);
   $('level').replaceChildren();
+  if (!current) { $('view-state').textContent = 'Prepara una imagen para comenzar'; return; }
   for (let i = 0; i < current.levels; i++) $('level').add(new Option(i === 0 ? '0 · Resolución original' : `${i} · Reducida`, i));
   x = 0; y = 0; if (fitView) fit();
 }
@@ -156,6 +157,7 @@ async function receive(data, generation) {
       send('CREDIT_INIT', {capacityBytes: CREDIT_CAPACITY});
       $('pause-credit').disabled = false;
       $('connection').textContent = 'Conectado';
+      send('PREPARE_STATUS');
       if (resumeView && images.some(item => item.imageId === resumeView.imageId)) {
         $('image').value = resumeView.imageId;
         const saved = resumeView; resumeView = null;
@@ -165,6 +167,16 @@ async function receive(data, generation) {
       return;
     }
     if (message.sessionId !== sessionId) throw new Error('La respuesta pertenece a otra sesión');
+    if (message.type.startsWith('PREPARE_')) { preparationMessage(message); return; }
+    if (message.type === 'CATALOG_UPDATE') {
+      const selected = current?.imageId;
+      images = message.images.sort((a,b) => a.width*a.height - b.width*b.height);
+      $('image').replaceChildren();
+      images.forEach(item => $('image').add(new Option(item.name, item.imageId)));
+      if (selected && images.some(item => item.imageId === selected)) $('image').value = selected;
+      else selectImage();
+      return;
+    }
     if (message.type === 'CREDIT_STATUS') { showCreditStatus(message); return; }
     // Barrera ordenada: libera bases solo después de procesar los mensajes anteriores.
     if (message.type === 'CANCELLED') { cache.release(message.viewId); grantCapacity(true); return; }
@@ -267,6 +279,49 @@ function connect() {
   ws.onerror = () => { if (generation === epoch) error('No se pudo conectar con el servidor local.'); };
 }
 $('image').onchange = () => selectImage();
+// La tarea pertenece al servidor, no a la pestaña: consultar recupera su estado al reconectar.
+let preparationBusy = false;
+function preparationMessage(message) {
+  if (message.type === 'PREPARE_LIST') {
+    $('prepare-zip').replaceChildren(); $('prepare-entry').replaceChildren();
+    message.items.forEach(name => $('prepare-zip').add(new Option(name, name)));
+    if (message.items.length) send('PREPARE_ENTRIES', {zip: $('prepare-zip').value});
+    else $('prepare-status').textContent = 'No hay ZIP. Colócalos en imagenes/ y actualiza la lista.';
+  } else if (message.type === 'PREPARE_ENTRIES') {
+    if (message.zip !== $('prepare-zip').value) return;
+    $('prepare-entry').replaceChildren();
+    message.items.forEach(name => $('prepare-entry').add(new Option(name, name)));
+    if (!message.items.length) $('prepare-status').textContent = 'Este ZIP no contiene entradas PNG.';
+  } else if (message.type === 'PREPARE_STATUS') {
+    preparationBusy = message.state === 'RUNNING';
+    $('prepare-progress').value = message.percent;
+    $('prepare-status').textContent = message.message;
+  } else if (message.type === 'PREPARE_ERROR') $('prepare-status').textContent = message.message;
+  $('prepare-start').disabled = preparationBusy || !$('prepare-entry').value;
+}
+$('prepare-open').onclick = () => {
+  $('prepare-dialog').showModal();
+  if (!sessionId || socket?.readyState !== WebSocket.OPEN) {
+    $('prepare-status').textContent = 'Conecta con el servidor para preparar una imagen.';
+    $('prepare-start').disabled = true; return;
+  }
+  send('PREPARE_STATUS'); send('PREPARE_LIST');
+};
+$('prepare-close').onclick = () => $('prepare-dialog').close();
+$('prepare-refresh').onclick = () => send('PREPARE_LIST');
+$('prepare-zip').onchange = () => {
+  $('prepare-entry').replaceChildren(); $('prepare-start').disabled = true;
+  send('PREPARE_ENTRIES', {zip: $('prepare-zip').value});
+};
+$('prepare-form').onsubmit = event => {
+  event.preventDefault();
+  if (!sessionId || socket?.readyState !== WebSocket.OPEN) { $('prepare-status').textContent = 'Reconecta con el servidor.'; return; }
+  $('prepare-start').disabled = true;
+  send('PREPARE_START', {zip: $('prepare-zip').value, entry: $('prepare-entry').value, name: $('prepare-name').value.trim()});
+};
+setInterval(() => {
+  if ($('prepare-dialog').open && sessionId && socket?.readyState === WebSocket.OPEN) send('PREPARE_STATUS');
+}, 2000);
 $('level').onchange = () => changeLevel(Number($('level').value));
 $('fit').onclick = fit; $('reconnect').onclick = connect;
 $('position').onsubmit = event => {

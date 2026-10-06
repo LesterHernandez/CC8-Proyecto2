@@ -38,6 +38,8 @@ async function view(page,wire,image,fx,fy,scenario,reset=false,scale=1) {
     if(reset)cache.invalidate(current.imageId,'',true);
     current=images.find(i=>i.name===image);if(!current)throw Error('Imagen no encontrada');
     $('image').value=current.imageId;level=0;magnification=scale;
+    // La captura debe mostrar el mismo nivel que solicita la prueba.
+    $('level').value=String(level);
     x=Math.floor(fx*current.width);y=Math.floor(fy*current.height);clearTimeout(timer);requestView();return viewId;
   },{image,fx,fy,reset,scale});
   await page.waitForFunction(id=>viewId===id&&document.querySelector('#view-state').textContent==='Vista completa',id,{timeout:60000});

@@ -25,7 +25,24 @@
     <button id="reconnect">Reconectar</button>
     <button id="toggle-info" aria-expanded="false" aria-controls="transfer">Mostrar transferencia</button>
     <button id="fullscreen">Pantalla completa</button>
+    <button id="prepare-open">Preparar imagen</button>
   </section>
+  <dialog id="prepare-dialog" aria-labelledby="prepare-title">
+    <h2 id="prepare-title">Preparar imagen desde un ZIP</h2>
+    <p>Coloca el ZIP en la carpeta <strong>imagenes/</strong> del proyecto, sin descomprimirlo. Luego actualiza la lista.</p>
+    <form id="prepare-form">
+      <label>Archivo ZIP<select id="prepare-zip" required></select></label>
+      <button id="prepare-refresh" type="button">Actualizar lista</button>
+      <label>Imagen dentro del ZIP<select id="prepare-entry" required></select></label>
+      <label>Nombre en el selector<input id="prepare-name" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}" placeholder="imagen-nueva"></label>
+      <p>Usa letras, números o guiones y un nombre nuevo. Solo se prepara una imagen a la vez; las demás siguen disponibles.</p>
+      <progress id="prepare-progress" max="100" value="0"></progress>
+      <p id="prepare-status" role="status">Selecciona un ZIP y una imagen.</p>
+      <button id="prepare-start" type="submit">Preparar</button>
+      <button id="prepare-close" type="button">Cerrar</button>
+    </form>
+    <p>Cerrar este panel no cancela la preparación. Mantén el servidor encendido.</p>
+  </dialog>
   <div class="layout">
     <section class="viewer">
       <div class="viewer-title"><h2>Explorar imagen</h2><span id="dimensions">Esperando catálogo</span></div>

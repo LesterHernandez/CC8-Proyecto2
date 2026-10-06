@@ -25,6 +25,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de red PRIB' }
     java -Xmx256m -cp build/classes prib.DeltaProtocolTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas DELTA/RECOVER por red' }
+    java -Xmx256m -cp build/classes prib.ImagePreparationTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de preparación web' }
 } finally {
     Pop-Location # Restaurar la ubicación de quien invocó el script.
 }

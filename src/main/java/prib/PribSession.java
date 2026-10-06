@@ -54,6 +54,15 @@ final class PribSession {
         }
         if (!hello || !sessionId.equals(Json.text(message, "sessionId"))) throw new IllegalArgumentException("Sesión no válida");
         switch (type) {
+            case "PREPARE_LIST", "PREPARE_ENTRIES" -> preparationList(type, message);
+            case "PREPARE_STATUS" -> send("PREPARE_STATUS", server.preparation.status());
+            case "PREPARE_START" -> {
+                try {
+                    if (server.images.size() >= 100) throw new IllegalArgumentException("Máximo 100 imágenes preparadas");
+                    server.preparation.start(Json.text(message, "zip"), Json.text(message, "entry"), Json.text(message, "name"), server::publish);
+                    send("PREPARE_STATUS", server.preparation.status());
+                } catch (IllegalArgumentException error) { send("PREPARE_ERROR", Map.of("message", error.getMessage())); }
+            }
             case "CREDIT_INIT" -> { credit.initialize(Json.integer(message, "capacityBytes")); status(); }
             case "CREDIT_GRANT" -> { credit.grant(counter(message, "grantId"), counter(message, "releasedBytes")); waitingCredit = false; status(); }
             case "CREDIT_STATUS" -> { lastStatus = ""; status(); }
@@ -72,6 +81,27 @@ final class PribSession {
             case "CLOSE" -> client.closeFrame(1000);
             default -> throw new IllegalArgumentException("Comando no implementado: " + type);
         }
+    }
+
+    // Listar ZIP puede implicar disco lento: nunca hacerlo dentro del Selector.
+    private boolean listing;
+    private void preparationList(String type, Map<String, Object> message) {
+        if (listing) { send("PREPARE_ERROR", Map.of("message", "Espera a que termine la consulta de ZIP")); return; }
+        String zip = type.equals("PREPARE_ENTRIES") ? Json.text(message, "zip") : "";
+        listing = true;
+        if (!server.submit(() -> {
+            Map<String, Object> response;
+            try { response = Map.of("zip", zip, "items", zip.isEmpty() ? server.preparation.archives() : server.preparation.entries(zip)); }
+            catch (Exception error) { response = Map.of("message", error.getMessage() == null ? "No se pudo leer el ZIP" : error.getMessage()); }
+            Map<String, Object> result = response;
+            server.complete(() -> { listing = false; send(result.containsKey("message") ? "PREPARE_ERROR" : type, result); });
+        })) { listing = false; send("PREPARE_ERROR", Map.of("message", "Servidor ocupado; intenta otra vez")); }
+    }
+    void catalogUpdated() {
+        if (!hello) return;
+        send("CATALOG_UPDATE", Map.of("images", server.images.values().stream().map(item -> Map.of(
+                "imageId", item.store().imageId, "name", item.name(), "width", item.store().width,
+                "height", item.store().height, "levels", item.store().levels)).toList()));
     }
 
     private void cacheState(Map<String, Object> message) {

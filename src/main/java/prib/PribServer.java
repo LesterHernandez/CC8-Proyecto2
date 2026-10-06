@@ -17,6 +17,7 @@ import java.util.concurrent.*;
 public final class PribServer implements AutoCloseable {
     record Prepared(String name, ImageStore store) { }
     final Map<String, Prepared> images = new LinkedHashMap<>();
+    final ImagePreparation preparation;
     private final Map<String, byte[]> assets = new HashMap<>();
     private final Selector selector;
     private final ServerSocketChannel listener;
@@ -28,6 +29,11 @@ public final class PribServer implements AutoCloseable {
     private final int port;
 
     public PribServer(Path data, Path web, int port) throws IOException {
+        this(data, web, port, Path.of("imagenes"));
+    }
+    public PribServer(Path data, Path web, int port, Path archives) throws IOException {
+        Files.createDirectories(data);
+        preparation = new ImagePreparation(archives, data);
         // Cargar únicamente metadatos y recursos web pequeños antes de aceptar conexiones.
         try (var directories = Files.list(data)) {
             for (Path directory : directories.filter(Files::isDirectory).sorted().toList()) {
@@ -38,7 +44,6 @@ public final class PribServer implements AutoCloseable {
                 } catch (IOException error) { System.err.println("Se omitió almacén inválido: " + directory.getFileName()); }
             }
         }
-        if (images.isEmpty()) throw new IOException("No hay imágenes preparadas en " + data);
         if (images.size() > 100) throw new IOException("Máximo 100 imágenes en el catálogo de esta etapa");
         for (String name : List.of("index.html", "delta.js", "cache.js", "app.js", "style.css", "icon.svg")) {
             Path file = web.resolve(name);
@@ -97,7 +102,7 @@ public final class PribServer implements AutoCloseable {
             }
         } finally {
             for (Client client : List.copyOf(clients)) client.drop();
-            workers.shutdownNow(); listener.close(); selector.close();
+            preparation.close(); workers.shutdownNow(); listener.close(); selector.close();
         }
     }
     /** Limita también la llamada individual, conservando el resto para el siguiente turno.
@@ -118,7 +123,15 @@ public final class PribServer implements AutoCloseable {
         SelectionKey key = socket.register(selector, SelectionKey.OP_READ);
         Client client = new Client(socket, key); key.attach(client); clients.add(client);
     }
-    public void close() { running = false; selector.wakeup(); }
+    public void close() { running = false; preparation.close(); selector.wakeup(); }
+
+    /** El catálogo cambia solamente en el hilo de red; las vistas actuales siguen válidas. */
+    void publish(Prepared image) {
+        complete(() -> {
+            images.put(image.store().imageId, image);
+            for (Client client : List.copyOf(clients)) if (client.websocket && !client.closing) client.session.catalogUpdated();
+        });
+    }
 
     final class Client {
         final SocketChannel socket;
@@ -242,7 +255,8 @@ public final class PribServer implements AutoCloseable {
     public static void main(String[] args) throws Exception {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 8080;
         Path data = Path.of(args.length > 1 ? args[1] : "data");
-        try (PribServer server = new PribServer(data, Path.of("web"), port)) {
+        Path archives = Path.of(args.length > 2 ? args[2] : "imagenes");
+        try (PribServer server = new PribServer(data, Path.of("web"), port, archives)) {
             Runtime.getRuntime().addShutdownHook(new Thread(server::close)); server.run();
         }
     }
