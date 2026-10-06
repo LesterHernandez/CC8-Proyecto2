@@ -7,15 +7,15 @@ los bloques necesarios para explorar una imagen, sin descargarla completa.
 SHA-256, créditos, caché limitada, prioridades, generaciones y los cuatro modos
 REUSE/REF/DELTA/FULL. DELTA es exacto y la recuperación selectiva reenvía solamente
 el bloque afectado. Los cuatro modos y los fallos se demuestran con pruebas sintéticas;
-la evaluación de etapa 7 pasó con seis imágenes, hasta 17 GB y cuatro clientes
-simultáneos. [Mediciones y reproducción](docs/etapa-7.md).
+la evaluación documentada de etapa 7 pasó con ocho imágenes, hasta 55 GB y cuatro clientes
+simultáneos. [Pruebas y resultados](docs/pruebas.md#resultados-del-5-de-octubre-de-2026).
 [Plan de desarrollo](docs/plan-desarrollo.md).
 
 ## 1. Requisitos
 
 - **JDK 21**, con `java` y `javac` disponibles en la terminal.
 - **PowerShell** y un navegador actualizado.
-- Los dos ZIP del curso dentro de `imagenes/`, sin descomprimir. Esa carpeta no viene al clonar: la [guía del equipo](docs/preparacion-equipo.md) incluye el enlace de descarga, los nombres y dónde colocarlos.
+- Los ZIP de las imágenes que se quieran preparar dentro de `imagenes/`, sin descomprimir. Esa carpeta no viene al clonar: la [guía del equipo](docs/preparacion-equipo.md) incluye el enlace de descarga, los nombres y dónde colocarlos.
 
 No se necesitan Maven ni Node.js para ejecutar el visor. Con las herramientas
 y las imágenes disponibles, funciona sin internet.
@@ -25,10 +25,15 @@ Todos los comandos siguientes se ejecutan desde allí.
 
 ## 2. Preparar una imagen — solo la primera vez
 
-Para tener las mismas seis imágenes del equipo, seguir la
+Para tener las cuatro imágenes actuales (4, 17, 28 y 55 GB), seguir la
 [guía de preparación compartida](docs/preparacion-equipo.md).
 
 **Si ya tienes imágenes preparadas en `data/`, pasa al paso 3.**
+
+También puedes iniciar el servidor sin imágenes y pulsar **Preparar imagen** en
+la web: selecciona un ZIP de `imagenes/`, el PNG y un nombre nuevo. Verás el
+avance y aparecerá en el selector al terminar, sin reiniciar.
+Los comandos siguientes siguen disponibles como alternativa.
 
 Para comenzar con la imagen pequeña del curso:
 
@@ -67,8 +72,9 @@ Para detener el servidor, presiona **Ctrl+C** en la terminal.
 Si el puerto está ocupado, usa `./scripts/servidor.ps1 -Port 8081` y abre
 `http://localhost:8081`. El servidor funciona únicamente en el equipo local.
 
-Después de preparar nuevas imágenes o actualizar el código, reinicia el
-servidor. Si el navegador sigue mostrando la versión anterior, usa **Ctrl+F5**.
+Después de actualizar el código o preparar imágenes desde la terminal, reinicia
+el servidor. Las preparadas desde la web se incorporan automáticamente.
+Si el navegador sigue mostrando la versión anterior, usa **Ctrl+F5**.
 
 ## 4. Explorar la imagen
 
@@ -83,6 +89,7 @@ servidor. Si el navegador sigue mostrando la versión anterior, usa **Ctrl+F5**.
 | **Mostrar transferencia** | Revisar bloques, bytes, integridad y sesión |
 | **Pantalla completa** | Ampliar el visor; salir con Escape |
 | **Reconectar** | Iniciar una sesión nueva |
+| **Preparar imagen** | Elegir un PNG de un ZIP local y consultar el progreso |
 
 El zoom puede superar el 100 % para ver los números más grandes: amplía los
 píxeles originales sin añadir información. Solo se solicitan los bloques
@@ -107,29 +114,9 @@ Para ejecutar las pruebas automáticas:
 Deben terminar sin errores y mostrar mensajes `PASS`. Comprueban lectura PNG,
 almacenamiento y comunicación con dos clientes; no requieren los ZIP del curso.
 
-### Probar los créditos de etapa 4
-
-En **Mostrar transferencia**, pulsa **Pausar devoluciones** y cambia de región
-con la imagen de 17 GB al 100 %. El envío debe detenerse en **Esperando crédito**.
-Otra pestaña debe seguir funcionando. Pulsa **Reanudar devoluciones** para completar
-la vista. **Reconectar** crea una sesión nueva y vuelve a solicitar la región.
-[Reglas y prueba completa de etapa 4](docs/etapa-4.md).
-
-### Probar reutilización de etapa 5
-
-Con una imagen pequeña, espera Vista completa y pulsa Ir a la región otra vez.
-En Mostrar transferencia deben aparecer bloques REUSE y menos bytes PRIB.
-La caché conserva hasta 16 MiB; volver a regiones expulsadas requiere FULL.
-REF reutiliza contenido idéntico de otro bloque; las pruebas sintéticas lo demuestran.
-[Protocolo, prioridades, caché y prueba de etapa 5](docs/etapa-5.md).
-
-### Probar DELTA y recuperación de etapa 6
-
-El panel muestra los cuatro modos y las recuperaciones. El servidor busca hasta
-cuatro bases similares y usa DELTA solo si su coste completo ahorra al menos 15 %
-y 256 bytes frente a FULL. Un fallo semántico solicita FULL únicamente del objetivo,
-con dos reintentos máximos. No hace falta preparar nuevamente las imágenes.
-[Formato, mensajes y demostración reproducible de etapa 6](docs/etapa-6.md).
+Para comprobar créditos, reutilización, clientes independientes, DELTA y recuperación,
+seguir la [guía de pruebas](docs/pruebas.md). También incluye las pruebas opcionales
+de navegador, la evaluación completa y los resultados con imágenes de hasta 55 GB.
 
 ## Carpetas y documentación
 
@@ -144,28 +131,16 @@ con dos reintentos máximos. No hace falta preparar nuevamente las imágenes.
 | `build/` | Compilación y pruebas temporales |
 | `docs/` | Plan, detalles técnicos y evidencia |
 
-Los ZIP, imágenes preparadas y resultados generados no se suben a GitHub.
+Los ZIP, imágenes preparadas y temporales no se suben a GitHub. Se conserva
+únicamente el JSON de referencia de la evaluación documentada en `docs/mediciones/`.
 Puedes limpiar los resultados de `output/` si no los necesitas; comprueba
 antes que no hayas elegido esa carpeta para guardar algún almacén preparado.
 
-- [Plan de ocho etapas](docs/plan-desarrollo.md).
-- [Etapa 1: lectura y bloques verificables](docs/etapa-1.md).
-- [Etapa 2: preparación y almacenamiento](docs/etapa-2.md).
-- [Pruebas manuales de preparación y consulta](docs/pruebas-manuales.md).
-- [Etapa 3: servidor, visor, protocolo y zoom](docs/etapa-3.md).
+| Documento | Para qué leerlo |
+| --- | --- |
+| [Preparación del equipo](docs/preparacion-equipo.md) | ZIP y preparación desde web o terminal de 4, 17, 28 y 55 GB |
+| [Plan de desarrollo](docs/plan-desarrollo.md) | Consultar las ocho etapas y su estado |
+| [Protocolo y arquitectura](docs/protocolo.md) | Entender mensajes, almacenamiento, algoritmos, créditos y caché |
+| [Pruebas y resultados](docs/pruebas.md) | Probar manualmente, ejecutar verificaciones y consultar mediciones |
 
-- [Etapa 4: créditos y recuperación de sesión](docs/etapa-4.md).
-
-- [Etapa 5: reutilización, prioridades, caché y generaciones](docs/etapa-5.md).
-
-- [Etapa 6: DELTA exacto y recuperación selectiva](docs/etapa-6.md).
-
-- [Pruebas opcionales de navegador](docs/pruebas-navegador.md): sesiones, zoom, visor y créditos.
-
-## Evaluación de recursos y concurrencia
-
-Con Node, Chrome y Playwright previamente instalados, ejecutar
-`./scripts/evaluar.ps1`. Genera mediciones JSON/CSV de bytes por modo, ahorro,
-latencia, caché, memoria del servidor, créditos, cancelaciones y recuperación.
-La [evidencia de etapa 7](docs/etapa-7.md) declara alcance y límites;
-la consolidación y demostración final de etapa 8 siguen pendientes.
+La etapa 8 sigue pendiente para consolidar la entrega y preparar la demostración final.

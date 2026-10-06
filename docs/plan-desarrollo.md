@@ -11,15 +11,20 @@ todo el desarrollo; la etapa 8 integra y prepara la entrega final.
 
 ## Estado general
 
+Mejora de usabilidad incorporada: preparación de ZIP desde la web con progreso,
+una tarea a la vez y actualización automática del catálogo. Se conserva la
+alternativa por terminal. El catálogo de trabajo actual contiene 4, 17, 28 y 55 GB;
+la evaluación histórica de ocho imágenes sigue documentada en las pruebas.
+
 | Etapa | Resultado | Estado |
 | --- | --- | --- |
 | 1 | Base técnica y bloques verificables | Implementada y probada en imágenes pequeñas |
-| 2 | Preprocesamiento y almacenamiento de imágenes | Implementada y probada hasta la imagen de 17 GB |
+| 2 | Preprocesamiento y almacenamiento de imágenes | Implementada y probada hasta la imagen de 55 GB |
 | 3 | Servidor y primera comunicación completa | Implementada; FULL y dos clientes probados con almacén de 17 GB |
 | 4 | Créditos y recuperación básica | Implementada; agotamiento, reanudación y sesiones independientes verificados |
 | 5 | Reutilización, prioridades, caché y generaciones | Implementada; REUSE/REF/FULL, caché limitada, prioridades y CANCEL verificados |
 | 6 | DELTA exacto y recuperación selectiva | Implementada; cuatro modos, firmas acotadas y RECOVER a FULL verificados |
-| 7 | Evaluación con imágenes grandes y concurrencia | Implementada; seis imágenes, hasta 17 GB, cuatro clientes, recursos y recuperación medidos |
+| 7 | Evaluación con imágenes grandes y concurrencia | Implementada; ocho imágenes, hasta 55 GB, cuatro clientes, recursos y recuperación medidos |
 | 8 | Documentación y demostración final | Pendiente; documentación incremental iniciada |
 
 ## 1. Base técnica y prueba de bloques
@@ -29,7 +34,7 @@ dividir imágenes pequeñas y verificar píxeles y hashes. Documentar la elecci�
 inicial Java 21 y PRIB sobre WebSocket/TCP para las etapas de comunicación.
 
 **Cierre:** bloques y bordes iguales a ImageIO, errores PNG detectados y contrato
-interpretado en JavaScript. Evidencia en [etapa-1.md](etapa-1.md). La etapa 1 no incluye lectura completa de imágenes grandes ni el canal de navegador.
+interpretado en JavaScript. Evidencia en [protocolo y arquitectura](protocolo.md). La etapa 1 no incluye lectura completa de imágenes grandes ni el canal de navegador.
 
 ## 2. Preparación y almacenamiento de imágenes
 
@@ -42,7 +47,7 @@ Evitar cargar imágenes completas o generar cantidades inmanejables de archivos.
 espacio de salida y temporales. Probar tamaños crecientes antes de preparar
 las imágenes de 17 y 28 GB. Los números deben conservarse legibles a máxima resolución.
 
-Implementación y comandos en [etapa-2.md](etapa-2.md).
+Implementación y comandos en [protocolo y arquitectura](protocolo.md).
 
 ## 3. Servidor y primera comunicación completa
 
@@ -54,7 +59,7 @@ de sesión/vista/transferencia, límites de mensajes y cierre de recursos.
 reciben, verifican y dibujan únicamente los bloques solicitados. Las operaciones
 de disco o CPU no bloquean la atención de conexiones; las colas tienen límites.
 
-Implementación, mensajes y pruebas en [etapa-3.md](etapa-3.md).
+Implementación, mensajes y pruebas en [protocolo y arquitectura](protocolo.md).
 
 ## 4. Créditos y recuperación básica
 
@@ -66,7 +71,7 @@ sin créditos de datos y separar ACK de devolución de capacidad.
 No hay crédito negativo ni concesiones duplicadas. Una unidad máxima puede
 transmitirse bajo la configuración negociada y un cliente lento no detiene a otro.
 
-Implementación, reglas y pruebas en [etapa-4.md](etapa-4.md).
+Implementación, reglas y pruebas en [protocolo y arquitectura](protocolo.md).
 
 ## 5. Reutilización, prioridades, caché y generaciones
 
@@ -78,7 +83,7 @@ Proteger bases activas y contabilizar los datos que siguen en tránsito.
 trabajo obsoleto sin dibujar bloques incorrectos ni liberar créditos antes de tiempo.
 Memoria limitada y progreso de bloques elegibles. Completa el nivel A de la propuesta.
 
-Implementación, contrato y pruebas en [etapa-5.md](etapa-5.md).
+Implementación, contrato y pruebas en [protocolo y arquitectura](protocolo.md).
 
 ## 6. DELTA exacto y recuperación selectiva
 
@@ -90,7 +95,7 @@ DELTA frente a FULL. Verificar SHA-256, proteger dependencias y limitar reintent
 DELTA_FAILED y desajustes de caché, recuperando el bloque correcto. Usar FULL si
 DELTA no ahorra lo suficiente. Sin cadenas pendientes de reconstrucción.
 
-Implementación, formato diferencial y pruebas en [etapa-6.md](etapa-6.md).
+Implementación, formato diferencial y pruebas en [protocolo y arquitectura](protocolo.md).
 
 ## 7. Imágenes grandes, recursos y concurrencia
 
@@ -103,7 +108,7 @@ mediciones, incluyendo clientes lentos, desconexiones y navegación prolongada.
 resultados reproducibles sin internet. La imagen de 24 GB es referencia de prueba
 inicial del curso, no meta final; el tamaño máximo demostrado se reportará honestamente.
 
-Mediciones, límites y reproducción en [etapa-7.md](etapa-7.md).
+Mediciones, límites y reproducción en [pruebas y resultados](pruebas.md), incluidos 28 y 55 GB.
 
 ## 8. Documentación y demostración final
 
@@ -119,7 +124,7 @@ coincide con el código y declara las limitaciones verificadas. Referencia de ev
 ## Cómo registrar los avances en GitHub
 
 1. Terminar el alcance previsto y ejecutar las comprobaciones de esa etapa.
-2. Actualizar este estado y el documento de evidencia `docs/etapa-N.md`.
+2. Actualizar este estado y las secciones correspondientes de `docs/protocolo.md` y `docs/pruebas.md`.
 3. Actualizar el README si cambian requisitos, comandos o funcionalidad disponible.
 4. Guardar el avance en un commit descriptivo, por ejemplo `Etapa 1: bloques RGB verificables`.
 5. Opcionalmente marcar el hito con una etiqueta como `etapa-1`; pueden existir varios
