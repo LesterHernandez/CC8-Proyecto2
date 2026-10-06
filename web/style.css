@@ -50,6 +50,8 @@ form label { flex-direction: row; align-items: center; }
 #prepare-form label { display: flex; flex-direction: column; align-items: stretch; width: 100%; }
 #prepare-form input, #prepare-form select, #prepare-progress { width: 100%; box-sizing: border-box; }
 #prepare-dialog p { font-size: 13px; line-height: 1.5; }
+summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+#demo-tools { border-top: 1px solid #dce4ec; padding-top: 12px; }
 #prepare-status { width: 100%; overflow-wrap: anywhere; }
 .zoom-controls { display: flex; align-items: center; gap: 7px; }
 #zoom-value { min-width: 70px; text-align: center; font-size: 12px; }
@@ -69,3 +71,14 @@ form label { flex-direction: row; align-items: center; }
 }
 
 #prepare-zip-fields, #prepare-file-fields, #prepare-url-fields { width: 100%; }
+
+/* Métricas agrupadas: el detalle técnico permanece plegado. */
+#transfer h3 { font-size: 13px; margin: 14px 0 6px; border-bottom: 1px solid #dce4ec; padding-bottom: 4px; }
+#transfer .compact-metrics { margin: 6px 0 12px; }
+#transfer .compact-metrics dt { margin-top: 8px; }
+#transfer .compact-metrics dd { font-size: 15px; margin: 0; }
+.transfer-id { font-size: 11px; }
+.mode-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.mode-grid div { background: #f1f5f9; border-radius: 4px; text-align: center; padding: 5px 2px; }
+.mode-grid span { display: block; font-size: 10px; }
+.mode-grid strong { font-size: 15px; }

@@ -9,7 +9,8 @@ import java.util.function.Consumer;
 import java.util.regex.*;
 import java.util.zip.*;
 
-/** Preparación local: una tarea por servidor, independiente de las sesiones del visor.
+/** Una preparación por servidor. ZIP/URL sobreviven al cierre de la pestaña;
+ * la subida local necesita su sesión hasta recibir el último fragmento.
  * El proceso hijo reutiliza PrepareImage con heap propio; no carga el ZIP en RAM.
  */
 final class ImagePreparation implements AutoCloseable {
@@ -19,7 +20,10 @@ final class ImagePreparation implements AutoCloseable {
     private volatile Map<String, Object> status = Map.of("state", "IDLE", "percent", 0, "message", "Sin preparación activa");
     private boolean busy, closed;
 
-    ImagePreparation(Path archives, Path data) { this.archives = archives.toAbsolutePath().normalize(); this.data = data.toAbsolutePath().normalize(); }
+    ImagePreparation(Path archives, Path data) {
+        this.archives = archives.toAbsolutePath().normalize();
+        this.data = data.toAbsolutePath().normalize();
+    }
     Map<String, Object> status() { return status; }
 
     // Solo archivos directos de imagenes/. No aceptamos rutas arbitrarias ni enlaces exteriores.
@@ -50,13 +54,16 @@ final class ImagePreparation implements AutoCloseable {
         }
     }
 
+    // Escribir al proceso puede bloquear: nunca hacerlo en el Selector de red.
     private final ExecutorService inputWorker = Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor();
     private Upload upload;
     private static final class Upload {
-        final String owner; final long size;
+        final String owner;
+        final long size;
         final CompletableFuture<Void> ended = new CompletableFuture<>();
-        long offset, lastActivity = System.nanoTime(); boolean writing, ending;
+        long offset, lastActivity = System.nanoTime();
+        boolean writing, ending;
         OutputStream input;
         Upload(String owner, long size) { this.owner = owner; this.size = size; }
     }
@@ -86,13 +93,17 @@ final class ImagePreparation implements AutoCloseable {
         worker.execute(() -> {
             Process child = null;
             try {
-                Files.createDirectories(data); Path output = data.toRealPath().resolve(name);
+                Files.createDirectories(data);
+                Path output = data.toRealPath().resolve(name);
                 if (Files.exists(output, LinkOption.NOFOLLOW_LINKS)) throw new IOException("La carpeta de destino ya existe; elige otro nombre");
                 String source, option;
                 if (mode.equals("ZIP")) {
                     source = archive(sourceName).toString(); option = entry;
                     if (!ImageRows.supportedName(entry)) throw new IOException("Selecciona una entrada de imagen");
-                } else { source = mode.equals("UPLOAD") ? "--stdin" : "--url"; option = mode.equals("UPLOAD") ? "imagen local" : sourceName; }
+                } else {
+                    source = mode.equals("UPLOAD") ? "--stdin" : "--url";
+                    option = mode.equals("UPLOAD") ? "imagen local" : sourceName;
+                }
                 String java = Path.of(System.getProperty("java.home"), "bin", "java.exe").toString();
                 if (!Files.exists(Path.of(java))) java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
                 synchronized (this) {
@@ -117,8 +128,14 @@ final class ImagePreparation implements AutoCloseable {
                     }
                 }
                 if (child.waitFor() != 0) throw new IOException("No se pudo preparar la imagen: " + problem + ". Si quedó una carpeta incompleta, usa otro nombre.");
-                if (incoming != null) { incoming.ended.get(60, TimeUnit.SECONDS); Files.delete(output.resolve("INCOMPLETE")); }
-                ImageStore store = new ImageStore(output); publish.accept(new PribServer.Prepared(name, store));
+                // Decodificar un PNG no basta: confirmar también que llegó toda la subida.
+                // INCOMPLETE impide que un almacén parcial aparezca al reiniciar el servidor.
+                if (incoming != null) {
+                    incoming.ended.get(60, TimeUnit.SECONDS);
+                    Files.delete(output.resolve("INCOMPLETE"));
+                }
+                ImageStore store = new ImageStore(output);
+                publish.accept(new PribServer.Prepared(name, store));
                 status = Map.of("state", "DONE", "name", name, "percent", 100, "message", "Imagen preparada: " + name);
             } catch (Exception error) {
                 status = Map.of("state", "FAILED", "name", name, "percent", 0,
@@ -142,9 +159,16 @@ final class ImagePreparation implements AutoCloseable {
         item.writing = true; item.lastActivity = System.nanoTime();
         inputWorker.execute(() -> {
             try {
-                item.input.write(bytes); item.input.flush();
+                item.input.write(bytes);
+                item.input.flush();
                 long next;
-                synchronized (this) { item.offset += bytes.length; next = item.offset; item.writing = false; item.lastActivity = System.nanoTime(); }
+                synchronized (this) {
+                    item.offset += bytes.length;
+                    next = item.offset;
+                    item.writing = false;
+                    item.lastActivity = System.nanoTime();
+                }
+                // ACK confirma escritura, no solo recepción: aplica presión al navegador.
                 acknowledged.accept(next);
             } catch (IOException error) { abortUpload(owner); }
         });
@@ -164,6 +188,7 @@ final class ImagePreparation implements AutoCloseable {
         if (process != null) process.destroy();
     }
     private synchronized void checkUpload(Upload item) {
+        // Comparar la identidad evita que un temporizador antiguo cancele la siguiente tarea.
         if (upload != item || item.ending || closed) return;
         if (System.nanoTime()-item.lastActivity > 60_000_000_000L) abortUpload(item.owner);
         else watchdog.schedule(() -> checkUpload(item), 5, TimeUnit.SECONDS);

@@ -13,6 +13,9 @@ final class PribSession {
     private final PribServer server;
     private final PribServer.Client client;
     private final String sessionId = UUID.randomUUID().toString();
+    final SessionLog log = new SessionLog(sessionId);
+    private long viewStarted;
+    private boolean loggedWaiting;
     private final ArrayList<Tile> pending = new ArrayList<>();
     private final Map<Integer, Sent> awaiting = new HashMap<>();
     private final CreditWindow credit = new CreditWindow();
@@ -156,6 +159,8 @@ final class PribSession {
         if (sent.base() != null) cache.forget(sent.base().imageId(), sent.base().blockId());
         cache.forget(image.store().imageId, target(sent.tile()).blockId());
         forceFull.add(key); pending.add(sent.tile()); done = false; waitingCredit = false;
+        log.important("RECUPERACION", "vista=" + viewId + " bloque=" + target(sent.tile()).blockId()
+                + " causa=" + reason + " intento=" + count + " -> FULL");
         send("RECOVERY_ACCEPTED", Map.of("viewId", viewId, "transferId", id, "blockId", target(sent.tile()).blockId(),
                 "reason", reason, "attempt", count, "mode", "FULL"));
     }
@@ -165,6 +170,8 @@ final class PribSession {
         int tasks = 0, bytes = 0;
         if (generation == viewId && !cancelled.get()) {
             tasks = pending.size() + (working ? 1 : 0); bytes = ready == null ? 0 : ready.data().length;
+            // Cambiar una vista ya completada también emite CANCELLED, pero no es trabajo perdido.
+            if (!done) log.event("CANCELADA", "vista=" + generation + " tareasDescartadas=" + tasks + " bytesNoEncolados=" + bytes);
             cancelled.set(true); pending.clear(); ready = null; awaiting.clear(); retries.clear(); forceFull.clear(); planning = false;
             planned = false; done = true; waitingCredit = false;
         }
@@ -189,6 +196,9 @@ final class PribSession {
             overlap.put(tile.level() + ":" + tile.column() + ":" + tile.row(), tile.info());
         if (viewId > 0 && !cancelled.get()) cancel(viewId);
         viewId = next; image = requested; vx = x; vy = y; vw = width; vh = height;
+        viewStarted = System.nanoTime();
+        log.event("VISTA", "vista=" + viewId + " imagen=" + requested.name() + " nivel=" + level
+                + " region=" + x + "," + y + " " + width + "x" + height);
         pending.clear(); awaiting.clear(); ready = null; delivered = full = reuse = ref = delta = recoveries = deltaCandidates = 0;
         deltaNanos = 0; retries.clear(); forceFull.clear();
         packetBytes = avoidedBytes = 0; done = false; waitingCredit = false;
@@ -350,6 +360,9 @@ final class PribSession {
     private void finish() {
         if (planned && pending.isEmpty() && ready == null && !working && awaiting.isEmpty() && !done) {
             done = true;
+            log.event("COMPLETA", "vista=" + viewId + " confirmados=" + required + " FULL=" + full
+                    + " REUSE=" + reuse + " REF=" + ref + " DELTA=" + delta + " bytesPRIB=" + packetBytes
+                    + " recuperaciones=" + recoveries + " ms=" + (System.nanoTime() - viewStarted)/1_000_000);
             Map<String, Object> summary = new LinkedHashMap<>();
             summary.put("viewId", viewId); summary.put("blocks", required); summary.put("transmissions", delivered);
             summary.put("full", full); summary.put("reuse", reuse); summary.put("ref", ref); summary.put("delta", delta);
@@ -366,6 +379,12 @@ final class PribSession {
         String state = !credit.initialized() ? "WAIT_INIT"
                 : waitingCredit || ready != null && !credit.canSend(ready.data().length) ? "WAIT_CREDIT"
                 : done || pending.isEmpty() && ready == null && !working ? "IDLE" : "SENDING";
+        boolean waiting = state.equals("WAIT_CREDIT");
+        if (waiting != loggedWaiting) {
+            log.event("CREDITO", "vista=" + viewId + " " + (waiting ? "esperando" : state.equals("SENDING") ? "envio reanudado" : "fin de espera; estado=" + state)
+                    + " disponible=" + credit.available() + " pendienteDeDevolucion=" + credit.outstanding());
+            loggedWaiting = waiting;
+        }
         Map<String, Object> fields = Map.of("capacityBytes", credit.capacity(), "availableBytes", credit.available(),
                 "outstandingBytes", credit.outstanding(), "releasedBytes", credit.released(), "grantId", credit.grantId(), "state", state);
         String signature = Json.encode(fields);

@@ -45,10 +45,14 @@ async function view(page,wire,image,fx,fy,scenario,reset=false,scale=1) {
   await page.waitForFunction(id=>viewId===id&&document.querySelector('#view-state').textContent==='Vista completa',id,{timeout:60000});
   const latencyMs=performance.now()-start;
   const client=await page.evaluate(()=>({verified,expected,modes:{...modes},pribBytes,recoveries,
+    metrics:viewMetrics.snapshot(),
     cacheBytes:cache.bytes,entries:cache.entries.size,holds:cache.holds.size,region:{...activeView},
     heap:performance.memory?.usedJSHeapSize || null,error:$('error').hidden?null:$('error').textContent}));
   assert.equal(client.error,null);assert.equal(client.verified,client.expected);assert(client.verified>0);
   assert.equal(client.holds,0);assert(client.cacheBytes<=16*1024*1024);assert(client.entries<=1024);
+  assert(client.metrics.firstBlockMs>=0 && client.metrics.firstBlockMs<=client.metrics.elapsedMs);
+  assert(client.metrics.cacheHitRate>=0 && client.metrics.cacheHitRate<=1);
+  assert(client.metrics.cacheAverageBytes>=0 && client.metrics.cacheAverageBytes<=16*1024*1024);
   peakCache=Math.max(peakCache,client.cacheBytes);peakEntries=Math.max(peakEntries,client.entries);peakClientHeap=Math.max(peakClientHeap,client.heap||0);
   const after=snapshot(wire),modeBytes={};
   for(const [m,v] of Object.entries(after.modes))modeBytes[m]={packets:v.packets-(before.modes[m]?.packets||0),bytes:v.bytes-(before.modes[m]?.bytes||0)};

@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/delta.js" defer></script>
   <script src="/cache.js" defer></script>
+  <script src="/metrics.js" defer></script>
+  <script src="/vendor/sha256.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -15,7 +17,7 @@
 <main>
   <section class="toolbar" aria-label="Controles de visualización">
     <label>Imagen preparada<select id="image" disabled></select></label>
-    <label>Nivel de detalle<select id="level" disabled></select></label>
+    <label title="Nivel 0: píxeles originales. Los niveles superiores son versiones reducidas.">Nivel de detalle<select id="level" disabled></select></label>
     <div class="zoom-controls" role="group" aria-label="Acercamiento">
       <button id="zoom-out" aria-label="Alejar" disabled>−</button>
       <output id="zoom-value" aria-live="polite">100 %</output>
@@ -29,7 +31,7 @@
   </section>
   <dialog id="prepare-dialog" aria-labelledby="prepare-title">
     <h2 id="prepare-title">Preparar imagen</h2>
-    <p>Elige un ZIP del proyecto, un archivo local o una URL directa a PNG, JPEG, GIF o BMP. PNG requiere RGB de 8 bits sin entrelazado; GIF usa el primer fotograma.</p>
+    <p>Incorpora una imagen al visor. Para imágenes grandes, utiliza un ZIP del proyecto.</p>
     <form id="prepare-form">
       <label>Origen<select id="prepare-source"><option value="zip">ZIP del proyecto</option><option value="file">Archivo de imagen local</option><option value="url">URL directa a imagen</option></select></label>
       <div id="prepare-zip-fields">
@@ -38,8 +40,14 @@
       <button id="prepare-refresh" type="button">Actualizar lista</button>
       <label>Imagen dentro del ZIP<select id="prepare-entry" required></select></label>
       </div>
-      <div id="prepare-file-fields" hidden><label>Archivo de imagen<input id="prepare-file" type="file" accept="image/png,image/jpeg,image/gif,image/bmp,.png,.jpg,.jpeg,.gif,.bmp" disabled></label></div>
-      <div id="prepare-url-fields" hidden><label>URL de la imagen<input id="prepare-url" type="url" maxlength="2048" placeholder="https://ejemplo.com/imagen.png" disabled></label></div>
+      <div id="prepare-file-fields" hidden>
+        <label>Archivo de imagen<input id="prepare-file" type="file" accept="image/png,image/jpeg,image/gif,image/bmp,.png,.jpg,.jpeg,.gif,.bmp" disabled></label>
+        <p>Recomendado para archivos pequeños. La subida por fragmentos puede tardar mucho con archivos de varios GB; para ellos usa ZIP del proyecto. Mantén esta pestaña conectada hasta terminar el envío.</p>
+      </div>
+      <div id="prepare-url-fields" hidden>
+        <label>URL de la imagen<input id="prepare-url" type="url" maxlength="2048" placeholder="https://ejemplo.com/imagen.png" disabled></label>
+        <p>Debe ser un enlace público HTTP/HTTPS directo a una imagen, no a una página o carpeta de Drive. El servidor necesita internet para descargarla.</p>
+      </div>
       <label>Nombre en el selector<input id="prepare-name" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}" placeholder="imagen-nueva"></label>
       <p>Usa letras, números o guiones y un nombre nuevo. Solo se prepara una imagen a la vez; las demás siguen disponibles.</p>
       <progress id="prepare-progress" max="100" value="0"></progress>
@@ -47,13 +55,15 @@
       <button id="prepare-start" type="submit">Preparar</button>
       <button id="prepare-close" type="button">Cerrar</button>
     </form>
-    <p>JPEG/GIF/BMP: hasta 64 MiB y 16 millones de píxeles. La transparencia se compone sobre blanco.</p>
-    <p>Cerrar este panel no cancela la preparación. Mantén el servidor encendido. Una subida de imagen requiere mantener la pestaña conectada hasta terminar el envío. Se guardan bloques en data/: cambiar el origen no elimina el espacio necesario.</p>
+    <details><summary>Formatos y límites</summary>
+      <p>PNG: RGB de 8 bits sin entrelazado. JPEG/GIF/BMP: hasta 64 MiB y 16 millones de píxeles; GIF usa el primer fotograma y la transparencia se compone sobre blanco.</p>
+    </details>
+    <p>Cerrar este panel no cancela la preparación. Mantén el servidor encendido y espacio libre para guardar la imagen preparada.</p>
   </dialog>
   <div class="layout">
     <section class="viewer">
       <div class="viewer-title"><h2>Explorar imagen</h2><span id="dimensions">Esperando catálogo</span></div>
-      <p class="hint">Arrastra para desplazarte. Usa la rueda para acercar o alejar sobre el cursor.</p>
+      <p class="hint">Arrastra para desplazarte; usa la rueda o + / − para ampliar. Nivel 0 conserva el detalle original; ampliar más no añade píxeles nuevos.</p>
       <div id="stage"><canvas id="canvas" width="960" height="512" aria-label="Región de la imagen seleccionada"></canvas></div>
       <form id="position">
         <label>Columna X<input id="x" type="number" min="0" value="0" step="1" required></label>
@@ -65,28 +75,47 @@
     <aside id="transfer" hidden>
       <h2>Transferencia actual</h2>
       <p>Solo se solicitan los bloques que intersectan la región visible.</p>
-      <dl>
+      <p class="transfer-id">Sesión <span id="session" title="">—</span> · Vista <span id="view-id">—</span></p>
+      <h3>Esta vista</h3>
+      <dl class="compact-metrics">
         <dt>Bloques verificados</dt><dd id="blocks">0 / 0</dd>
-        <dt>Payload recibido en esta vista</dt><dd id="bytes">0 KB</dd>
-        <dt>FULL / REUSE / REF / DELTA</dt><dd id="modes">0 / 0 / 0 / 0</dd>
-        <dt>Bytes PRIB de esta vista</dt><dd id="prib-bytes">0 KiB</dd>
-        <dt>RGB evitado</dt><dd id="saved-bytes">0 KiB</dd>
-        <dt>Caché RGB</dt><dd id="cache-bytes">0 / 16 MiB</dd>
+        <dt>Bytes PRIB recibidos</dt><dd id="prib-bytes">0 KiB</dd>
+        <dt>Integridad SHA-256</dt><dd id="integrity">Pendiente</dd>
         <dt>Recuperaciones</dt><dd id="recoveries">0</dd>
-        <dt>Integridad</dt><dd id="integrity">Pendiente</dd>
-        <dt>Crédito disponible</dt><dd id="credit-available">—</dd>
-        <dt>PRIB sin capacidad devuelta</dt><dd id="credit-outstanding">—</dd>
-        <dt>Estado del envío</dt><dd id="credit-state">Esperando sesión</dd>
-        <dt>Vista</dt><dd id="view-id">—</dd>
-        <dt>Sesión</dt><dd id="session">—</dd>
       </dl>
-      <button id="pause-credit" disabled>Pausar devoluciones</button>
-      <p>Para probar el control: pausa, cambia de región y luego reanuda.</p>
-      <p class="note">Nivel 0 conserva la resolución original. Los niveles superiores muestran una versión reducida.</p>
+      <div id="modes" class="mode-grid" aria-label="Transmisiones por modo, incluidos reintentos">
+        <div title="Bloque completo"><span>FULL</span><strong id="mode-full">0</strong></div>
+        <div title="Reutiliza el mismo bloque de la caché"><span>REUSE</span><strong id="mode-reuse">0</strong></div>
+        <div title="Usa otro bloque idéntico de la caché"><span>REF</span><strong id="mode-ref">0</strong></div>
+        <div title="Reconstruye diferencias sobre una base en caché"><span>DELTA</span><strong id="mode-delta">0</strong></div>
+      </div>
+      <h3>Esta sesión</h3>
+      <dl class="compact-metrics">
+        <dt>Caché RGB</dt><dd id="cache-bytes">0 / 16 MiB</dd>
+        <dt>Crédito disponible</dt><dd id="credit-available">—</dd>
+        <dt title="Capacidad consumida aún no devuelta; no equivale a bloques pendientes de verificar.">Crédito pendiente de devolución</dt><dd id="credit-outstanding">—</dd>
+        <dt>Estado del envío</dt><dd id="credit-state">Esperando sesión</dd>
+      </dl>
+      <details id="demo-tools">
+        <summary>Mediciones y demostración</summary>
+        <dl class="compact-metrics">
+          <dt>Tiempo de esta vista</dt><dd id="view-time">—</dd>
+          <dt>Primer bloque verificado</dt><dd id="first-block">—</dd>
+          <dt>Espera por crédito en esta vista</dt><dd id="credit-wait">0 ms</dd>
+          <dt>Payload recibido en esta vista</dt><dd id="bytes">0 KiB</dd>
+          <dt title="RGB menos payload; no descuenta cabeceras ni recuperaciones.">RGB evitado (ahorro bruto)</dt><dd id="saved-bytes">0 KiB</dd>
+          <dt>Caché media de esta vista</dt><dd id="cache-average">0 MiB</dd>
+          <dt>Bloques resueltos con caché</dt><dd id="cache-hits">0 %</dd>
+          <dt>Concesiones en esta vista</dt><dd id="credit-grants">0</dd>
+        </dl>
+        <button id="pause-credit" disabled>Pausar devoluciones</button>
+        <p>Para demostrar el control: pausa, cambia de región y luego reanuda.</p>
+        <p>Bytes PRIB incluye cabeceras de bloques, no controles ni WebSocket/TCP. Los modos incluyen reintentos; RGB evitado es ahorro bruto.</p>
+      </details>
     </aside>
   </div>
   <p id="error" role="alert" hidden></p>
-  <footer>Etapa 7 · Servidor Java local · HTTP + WebSocket · Sin recursos externos</footer>
+  <footer>PRIB · Servidor Java · HTTP + WebSocket · Recursos del visor incluidos</footer>
 </main>
 </body>
 </html>

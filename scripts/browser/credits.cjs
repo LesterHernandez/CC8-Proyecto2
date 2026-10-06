@@ -14,6 +14,7 @@ const {launch, baseUrl, imageName} = require('./common.cjs');
  await Promise.all([complete(a),complete(b)]);
  await a.selectOption('#image',{label:imageName});await settle(a);
  await a.click('#toggle-info');await settle(a);
+ await a.locator('#demo-tools summary').click();
  await a.click('#pause-credit');
  await a.selectOption('#level','0');
  await a.waitForFunction(()=>document.querySelector('#credit-state').textContent==='Esperando crédito');
@@ -25,6 +26,8 @@ const {launch, baseUrl, imageName} = require('./common.cjs');
  await a.waitForTimeout(400);assert.equal(binaryBytes,stopped);
  await a.click('#pause-credit');await complete(a);
  await a.waitForFunction(()=>document.querySelector('#credit-outstanding').textContent==='0.0 KiB');
+ const metrics=await a.evaluate(()=>viewMetrics.snapshot());
+ assert(metrics.waitCreditMs>=300);assert(metrics.firstBlockMs>=0);assert(metrics.grants>0);
  assert.equal(await a.locator('#credit-available').textContent(),'256.0 KiB');
  // Reenviar la última concesión desde el cliente no aumenta el saldo.
  await a.evaluate(()=>send('CREDIT_GRANT',{grantId,releasedBytes}));

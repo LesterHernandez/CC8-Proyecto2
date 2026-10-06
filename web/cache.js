@@ -24,7 +24,7 @@ class BlockCache {
     const proximity = view && view.imageId === h.imageId && view.level === h.level
       ? 1 / (1 + Math.hypot(h.x+h.width/2-view.x-view.width/2, h.y+h.height/2-view.y-view.height/2)/128) : 0;
     const aliases = this.hashes.get(h.expectedHash) || 0;
-    // Igualdad exacta como potencial de REF; las bases DELTA pertenecen a etapa 6.
+    // Los hashes repetidos estiman potencial de REF; la similitud DELTA se decide en el servidor.
     return 3*recency + 3*proximity + 2*frequency + Math.min(2, aliases/4);
   }
   prepare(view) {

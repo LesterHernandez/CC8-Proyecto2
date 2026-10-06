@@ -8,6 +8,8 @@ try {
         Select-Object -ExpandProperty FullName
     javac -encoding UTF-8 -d build/classes $sources
     if ($LASTEXITCODE -ne 0) { throw 'Falló la compilación' }
+    java -cp build/classes prib.SessionLogTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de logs' }
     java -Xmx256m -cp build/classes prib.PngRowsTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas PNG' }
     # Comprobar índices, compresión, niveles y consultas de la etapa 2.
@@ -23,6 +25,8 @@ try {
     # Servidor temporal en un puerto libre y dos clientes WebSocket reales.
     java -Xmx256m -cp build/classes prib.PribServerTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de red PRIB' }
+    java -Xmx256m -cp build/classes prib.NetworkAccessTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de acceso local/red' }
     java -Xmx256m -cp build/classes prib.DeltaProtocolTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas DELTA/RECOVER por red' }
     java -Xmx256m -cp build/classes prib.ImagePreparationTest

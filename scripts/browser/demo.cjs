@@ -18,6 +18,9 @@ const {launch,baseUrl}=require('./common.cjs');
   };
   await Promise.all([a.goto(baseUrl),b.goto(baseUrl)]);await Promise.all([complete(a),complete(b)]);
   await a.waitForTimeout(250);await complete(a);
+  assert.equal(await a.locator('#session').textContent(), (await a.evaluate(()=>sessionId)).slice(0,8));
+  assert.equal(await a.locator('#session').getAttribute('title'), await a.evaluate(()=>sessionId));
+  assert.match(await a.locator('#view-time').textContent(), /^\d+ ms$/);
   await request(a,true);await request(a);
   const repeated=await a.evaluate(()=>({modes:{...modes},bytes:pribBytes,verified,expected}));
   assert.equal(repeated.modes.REUSE,repeated.expected);assert.equal(repeated.modes.FULL,0);
@@ -32,6 +35,7 @@ const {launch,baseUrl}=require('./common.cjs');
    throw Error('La ventana no se agotó');
   }
   await exhaust();const stopped=received;
+  assert.equal(await a.locator('#integrity').textContent(),'Verificando bloques');
   await request(b,true);await a.waitForTimeout(300);assert.equal(received,stopped);
   const paused=await a.evaluate(()=>({state:$('credit-state').textContent,outstanding:$('credit-outstanding').textContent}));
   await a.evaluate(()=>{grantsPaused=false;grantCapacity(true);});await complete(a);

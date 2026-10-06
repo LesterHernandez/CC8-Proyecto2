@@ -12,12 +12,14 @@ const CREDIT_CAPACITY = 256 * 1024;
 const cache = new BlockCache(send, () => activeView);
 let modes = {FULL: 0, REUSE: 0, REF: 0, DELTA: 0}, pribBytes = 0, savedBytes = 0;
 let recoveries = 0, failures = new Map();
+let viewMetrics, creditWaiting = false;
 let releasedBytes = 0, lastGrantedBytes = 0, grantId = 0, grantsPaused = false, resumeView;
 // Solo se conserva el total liberado; pausar concesiones no retiene bloques en RAM.
 function grantCapacity(force = false) {
   if (!grantsPaused && sessionId && socket?.readyState === WebSocket.OPEN
       && (force || releasedBytes - lastGrantedBytes >= 16 * 1024)) {
     send('CREDIT_GRANT', {grantId: ++grantId, releasedBytes}); lastGrantedBytes = releasedBytes;
+    viewMetrics?.grant();
   }
 }
 const decoder = new TextDecoder('utf-8', {fatal: true});
@@ -31,6 +33,9 @@ function resetCounters() {
   modes = {FULL: 0, REUSE: 0, REF: 0, DELTA: 0}; seen.clear(); counters();
 }
 function showCreditStatus(message) {
+  creditWaiting = message.state === 'WAIT_CREDIT';
+  viewMetrics?.creditState(creditWaiting);
+  showMetrics();
   $('credit-available').textContent = (message.availableBytes/1024).toFixed(1) + ' KiB';
   $('credit-outstanding').textContent = (message.outstandingBytes/1024).toFixed(1) + ' KiB';
   $('credit-state').textContent = {WAIT_INIT: 'Esperando capacidad inicial', WAIT_CREDIT: 'Esperando crédito',
@@ -48,12 +53,22 @@ function dimensions() {
 function counters() {
   $('blocks').textContent = `${verified} / ${expected}`;
   $('bytes').textContent = receivedBytes < 1024 ? `${receivedBytes} B` : `${(receivedBytes / 1024).toFixed(1)} KiB`;
-  $('integrity').textContent = verified ? 'SHA-256 correcto' : 'Pendiente';
-  $('modes').textContent = `${modes.FULL} / ${modes.REUSE} / ${modes.REF} / ${modes.DELTA}`;
+  $('integrity').textContent = expected ? 'Verificando bloques' : 'Pendiente';
+  for (const mode of Object.keys(modes)) $('mode-' + mode.toLowerCase()).textContent = modes[mode];
   $('prib-bytes').textContent = (pribBytes/1024).toFixed(1) + ' KiB';
   $('recoveries').textContent = recoveries;
   $('saved-bytes').textContent = (savedBytes/1024).toFixed(1) + ' KiB';
   $('cache-bytes').textContent = (cache.bytes/1024/1024).toFixed(2) + ' / 16 MiB';
+  showMetrics();
+}
+function showMetrics() {
+  const metric = viewMetrics?.snapshot();
+  $('view-time').textContent = metric ? Math.round(metric.elapsedMs) + ' ms' : '—';
+  $('first-block').textContent = metric?.firstBlockMs == null ? '—' : Math.round(metric.firstBlockMs) + ' ms';
+  $('credit-wait').textContent = Math.round(metric?.waitCreditMs || 0) + ' ms';
+  $('cache-average').textContent = ((metric?.cacheAverageBytes || 0)/1024/1024).toFixed(2) + ' MiB';
+  $('cache-hits').textContent = ((metric?.cacheHitRate || 0)*100).toFixed(1) + ' %';
+  $('credit-grants').textContent = metric?.grants || 0;
 }
 // El Canvas mantiene el tamaño de pantalla; la región solicitada disminuye al acercar.
 function viewport() {
@@ -80,7 +95,9 @@ function requestView() {
   $('x').max = Math.floor(Math.max(0, size.width-visibleWidth));
   $('y').max = Math.floor(Math.max(0, size.height-visibleHeight));
   $('zoom-value').textContent = (100 * magnification / 2 ** level).toLocaleString(undefined, {maximumFractionDigits: 2}) + ' %';
-  viewId++; activeView = nextView; resetCounters();
+  viewId++; activeView = nextView;
+  viewMetrics = new ViewMetrics(cache.bytes, creditWaiting);
+  resetCounters();
   context.fillStyle = '#dfe7ec'; context.fillRect(0, 0, canvas.width, canvas.height);
   $('view-id').textContent = viewId; $('view-state').textContent = 'Solicitando bloques…';
   $('dimensions').textContent = `${size.width.toLocaleString()} × ${size.height.toLocaleString()} · nivel ${level}`;
@@ -140,6 +157,9 @@ function drawBlock(header, rgb, view) {
 }
 
 async function digest(rgb) {
+  // HTTP por IP no es contexto seguro para Web Crypto. La copia local conserva
+  // exactamente el mismo SHA-256 sobre RGB, también para bases y resultados DELTA.
+  if (!globalThis.crypto?.subtle) return sha256(rgb);
   return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', rgb)), byte => byte.toString(16).padStart(2,'0')).join('');
 }
 
@@ -151,7 +171,7 @@ async function receive(data, generation) {
     if (message.type === 'ERROR') throw new Error(message.message);
     if (message.type === 'IMAGE_INFO') {
       sessionId = message.sessionId; images = message.images.sort((a,b) => a.width*a.height - b.width*b.height);
-      $('session').textContent = sessionId; $('image').replaceChildren();
+      $('session').textContent = sessionId.slice(0, 8); $('session').title = sessionId; $('image').replaceChildren();
       images.forEach(item => $('image').add(new Option(item.name, item.imageId)));
       setControlsEnabled(true);
       send('CREDIT_INIT', {capacityBytes: CREDIT_CAPACITY});
@@ -190,6 +210,8 @@ async function receive(data, generation) {
           || message.pribBytes !== pribBytes || message.recoveries !== recoveries)
         throw new Error('La vista terminó con bloques o métricas inconsistentes');
       $('view-state').textContent = 'Vista completa';
+      $('integrity').textContent = 'SHA-256 correcto';
+      viewMetrics.finish(); showMetrics();
     }
     return;
   }
@@ -229,6 +251,7 @@ async function receive(data, generation) {
   // FULL libera su buffer de red; DELTA ya creó RGB independiente y verificado.
   cache.put(header, header.mode === 'FULL' ? rgb.slice() : rgb);
   drawBlock(header, rgb, activeView);
+  viewMetrics.block(header.mode, cache.bytes);
   seen.add(header.blockId); verified++; counters();
   $('view-state').textContent = 'Verificando bloques…';
   send('ACK', {viewId, transferId: header.transferId, hash: header.expectedHash});
@@ -240,17 +263,18 @@ function connect() {
   failUpload('La sesión cambió durante la subida');
   const generation = ++epoch;
   releasedBytes = lastGrantedBytes = 0; grantId = 0; grantsPaused = false; cache.reset();
+  viewMetrics = null; creditWaiting = false;
   $('pause-credit').disabled = true; $('pause-credit').textContent = 'Pausar devoluciones';
   $('credit-available').textContent = '—'; $('credit-outstanding').textContent = '—';
   $('credit-state').textContent = 'Esperando sesión';
   socket?.close(); clearTimeout(timer); sessionId = ''; current = null; viewId = 0;
   $('error').hidden = true; $('connection').textContent = 'Conectando…';
-  $('view-state').textContent = 'Esperando sesión'; $('session').textContent = '—'; $('view-id').textContent = '—';
+  $('view-state').textContent = 'Esperando sesión'; $('session').textContent = '—'; $('session').title = ''; $('view-id').textContent = '—';
   resetCounters();
   context.clearRect(0, 0, canvas.width, canvas.height);
   setControlsEnabled(false);
-  if (!crypto.subtle) { error('Abre el visor en http://localhost para verificar SHA-256.'); return; }
-  const ws = new WebSocket(`ws://${location.host}/ws`); socket = ws; ws.binaryType = 'arraybuffer';
+  const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${scheme}//${location.host}/ws`); socket = ws; ws.binaryType = 'arraybuffer';
   let chain = Promise.resolve(), queuedBytes = 0, failed = false;
   ws.onopen = () => { if (generation === epoch) send('HELLO'); };
   ws.onmessage = event => {
@@ -274,6 +298,7 @@ function connect() {
   ws.onclose = () => {
     if (generation !== epoch) return;
     failUpload('La conexión se cerró durante la subida');
+    viewMetrics?.finish(); showMetrics();
     $('pause-credit').disabled = true; $('credit-state').textContent = 'Sesión cerrada';
     $('connection').textContent = 'Desconectado'; $('view-state').textContent = 'Conexión cerrada';
     setControlsEnabled(false);
@@ -284,34 +309,55 @@ $('image').onchange = () => selectImage();
 // La tarea pertenece al servidor, no a la pestaña: consultar recupera su estado al reconectar.
 let preparationBusy = false, uploadSending = false, uploadReply;
 function failUpload(message) {
-  if (uploadReply) { clearTimeout(uploadReply.timer); const reject=uploadReply.reject;uploadReply=null;reject(new Error(message)); }
+  if (!uploadReply) return;
+  const reply = uploadReply;
+  uploadReply = null;
+  clearTimeout(reply.timer);
+  reply.reject(new Error(message));
 }
 function waitUpload(type, fields, offset) {
-  return new Promise((resolve,reject)=>{
-    const timer=setTimeout(()=>{uploadReply=null;reject(new Error('La subida no respondió a tiempo'));},60000);
-    uploadReply={resolve,reject,timer,offset};send(type,fields);
+  // Una sola confirmación pendiente mantiene acotados el envío y el buffer del servidor.
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => failUpload('La subida no respondió a tiempo'), 60000);
+    uploadReply = {resolve, reject, timer, offset};
+    send(type, fields);
   });
 }
 function prepareButton() {
-  const mode=$('prepare-source').value;
-  const valid=mode==='zip'?Boolean($('prepare-entry').value):mode==='file'?Boolean($('prepare-file').files[0]):$('prepare-url').validity.valid&&Boolean($('prepare-url').value.trim());
-  $('prepare-start').disabled=preparationBusy||uploadSending||!valid;
+  const mode = $('prepare-source').value;
+  const valid = mode === 'zip' ? Boolean($('prepare-entry').value)
+    : mode === 'file' ? Boolean($('prepare-file').files[0])
+    : $('prepare-url').validity.valid && Boolean($('prepare-url').value.trim());
+  $('prepare-start').disabled = preparationBusy || uploadSending || !valid;
 }
 function prepareSource() {
-  const mode=$('prepare-source').value;
-  for(const [id,active] of [['zip',mode==='zip'],['file',mode==='file'],['url',mode==='url']]) {
-    $('prepare-'+id+'-fields').hidden=!active;
-    for(const input of $('prepare-'+id+'-fields').querySelectorAll('input,select')){input.disabled=!active;input.required=active;}
+  const mode = $('prepare-source').value;
+  for (const id of ['zip', 'file', 'url']) {
+    const active = id === mode, fields = $('prepare-' + id + '-fields');
+    fields.hidden = !active;
+    // Los campos ocultos no deben bloquear la validación HTML del formulario.
+    for (const input of fields.querySelectorAll('input,select')) {
+      input.disabled = !active;
+      input.required = active;
+    }
   }
-  $('prepare-status').textContent=mode==='zip'?'Selecciona un ZIP y una imagen.':mode==='file'?'Selecciona una imagen local.':'Introduce una URL directa pública HTTP o HTTPS.';
+  $('prepare-status').textContent = {
+    zip: 'Selecciona un ZIP y una imagen.', file: 'Selecciona una imagen local.',
+    url: 'Introduce una URL directa pública HTTP o HTTPS.'
+  }[mode];
   prepareButton();
 }
-$('prepare-source').onchange=prepareSource;
-$('prepare-file').onchange=prepareButton;
-$('prepare-url').oninput=prepareButton;
+$('prepare-source').onchange = prepareSource;
+$('prepare-file').onchange = prepareButton;
+$('prepare-url').oninput = prepareButton;
 function preparationMessage(message) {
   if (message.type === 'PREPARE_UPLOAD_ACK') {
-    if(uploadReply&&message.offset===uploadReply.offset){const reply=uploadReply;uploadReply=null;clearTimeout(reply.timer);reply.resolve();}
+    if (uploadReply && message.offset === uploadReply.offset) {
+      const reply = uploadReply;
+      uploadReply = null;
+      clearTimeout(reply.timer);
+      reply.resolve();
+    }
     return;
   }
   if (message.type === 'PREPARE_LIST') {
@@ -326,9 +372,18 @@ function preparationMessage(message) {
     if (!message.items.length && $('prepare-source').value==='zip') $('prepare-status').textContent = 'Este ZIP no contiene entradas de imagen.';
   } else if (message.type === 'PREPARE_STATUS') {
     preparationBusy = message.state === 'RUNNING';
-    if(!uploadSending){$('prepare-progress').value=message.percent;$('prepare-status').textContent=message.message;}
-    if(message.state==='FAILED'){failUpload(message.message);$('prepare-status').textContent=message.message;}
-  } else if (message.type === 'PREPARE_ERROR') {failUpload(message.message);$('prepare-status').textContent=message.message;}
+    if (!uploadSending) {
+      $('prepare-progress').value = message.percent;
+      $('prepare-status').textContent = message.message;
+    }
+    if (message.state === 'FAILED') {
+      failUpload(message.message);
+      $('prepare-status').textContent = message.message;
+    }
+  } else if (message.type === 'PREPARE_ERROR') {
+    failUpload(message.message);
+    $('prepare-status').textContent = message.message;
+  }
   prepareButton();
 }
 $('prepare-open').onclick = () => {
@@ -349,31 +404,48 @@ $('prepare-form').onsubmit = async event => {
   event.preventDefault();
   if (!sessionId || socket?.readyState !== WebSocket.OPEN) { $('prepare-status').textContent = 'Reconecta con el servidor.'; return; }
   $('prepare-start').disabled = true;
-  const mode=$('prepare-source').value,name=$('prepare-name').value.trim();
-  if(mode==='zip'){send('PREPARE_START',{zip:$('prepare-zip').value,entry:$('prepare-entry').value,name});return;}
-  if(mode==='url'){send('PREPARE_URL',{url:$('prepare-url').value.trim(),name});return;}
-  const file=$('prepare-file').files[0];if(!file)return;
-  uploadSending=true;prepareButton();const connection=socket;
+  const mode = $('prepare-source').value, name = $('prepare-name').value.trim();
+  if (mode === 'zip') {
+    send('PREPARE_START', {zip: $('prepare-zip').value, entry: $('prepare-entry').value, name});
+    return;
+  }
+  if (mode === 'url') { send('PREPARE_URL', {url: $('prepare-url').value.trim(), name}); return; }
+  const file = $('prepare-file').files[0];
+  if (!file) return;
+  uploadSending = true;
+  prepareButton();
+  const connection = socket;
   try {
-    if(file.size<33)throw new Error('Selecciona un archivo de imagen válido');
-    $('prepare-status').textContent='Iniciando subida de imagen…';
-    await waitUpload('PREPARE_UPLOAD',{size:file.size,name},0);
-    for(let offset=0;offset<file.size;){
-      if(socket!==connection||connection.readyState!==WebSocket.OPEN)throw new Error('La conexión cambió durante la subida');
-      const bytes=new Uint8Array(await file.slice(offset,offset+4096).arrayBuffer());
-      const data=btoa(String.fromCharCode(...bytes));
-      await waitUpload('PREPARE_CHUNK',{offset,data},offset+bytes.length);offset+=bytes.length;
-      $('prepare-progress').value=Math.floor(offset/file.size*99);
-      $('prepare-status').textContent=`Enviando imagen: ${Math.floor(offset/file.size*100)} %`;
+    if (file.size < 33) throw new Error('Selecciona un archivo de imagen válido');
+    $('prepare-status').textContent = 'Iniciando subida de imagen…';
+    await waitUpload('PREPARE_UPLOAD', {size: file.size, name}, 0);
+    // Leer un fragmento cada vez: nunca convertir el archivo entero a Base64 en memoria.
+    for (let offset = 0; offset < file.size;) {
+      if (socket !== connection || connection.readyState !== WebSocket.OPEN)
+        throw new Error('La conexión cambió durante la subida');
+      const bytes = new Uint8Array(await file.slice(offset, offset + 4096).arrayBuffer());
+      const data = btoa(String.fromCharCode(...bytes));
+      await waitUpload('PREPARE_CHUNK', {offset, data}, offset + bytes.length);
+      offset += bytes.length;
+      $('prepare-progress').value = Math.floor(offset/file.size*99);
+      $('prepare-status').textContent = `Enviando imagen: ${Math.floor(offset/file.size*100)} %`;
     }
-    send('PREPARE_END');$('prepare-status').textContent='Imagen enviada. Terminando preparación…';
-  } catch(error){if(socket===connection&&connection.readyState===WebSocket.OPEN)send('PREPARE_ABORT');$('prepare-status').textContent=error.message;}
-  finally{uploadSending=false;prepareButton();send('PREPARE_STATUS');}
-
+    send('PREPARE_END');
+    $('prepare-status').textContent = 'Imagen enviada. Terminando preparación…';
+  } catch (error) {
+    if (socket === connection && connection.readyState === WebSocket.OPEN) send('PREPARE_ABORT');
+    $('prepare-status').textContent = error.message;
+  } finally {
+    uploadSending = false;
+    prepareButton();
+    send('PREPARE_STATUS');
+  }
 };
 setInterval(() => {
   if ($('prepare-dialog').open && sessionId && socket?.readyState === WebSocket.OPEN) send('PREPARE_STATUS');
 }, 2000);
+// Actualizar la espera visible incluso cuando el servidor está detenido por crédito.
+setInterval(() => { if (viewMetrics && viewMetrics.end === null && !$('transfer').hidden) showMetrics(); }, 500);
 $('level').onchange = () => changeLevel(Number($('level').value));
 $('fit').onclick = fit; $('reconnect').onclick = connect;
 $('position').onsubmit = event => {

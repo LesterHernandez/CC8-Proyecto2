@@ -10,13 +10,15 @@ import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.*;
 
-/** Servidor local HTTP + WebSocket con Selector NIO.
+/** Servidor HTTP + WebSocket con Selector NIO, local por defecto y red opcional.
  * El hilo de red nunca lee bloques del disco: esas tareas van a un pool acotado.
  * Para detenerlo desde la terminal, usar Ctrl+C.
  */
 public final class PribServer implements AutoCloseable {
     record Prepared(String name, ImageStore store) { }
-    final Map<String, Prepared> images = new LinkedHashMap<>();
+    // El Selector publica imágenes mientras los trabajadores consultan bases DELTA.
+    // Las entradas son inmutables; este mapa permite publicar y leer sin carreras.
+    final Map<String, Prepared> images = new ConcurrentHashMap<>();
     final ImagePreparation preparation;
     private final Map<String, byte[]> assets = new HashMap<>();
     private final Selector selector;
@@ -27,11 +29,15 @@ public final class PribServer implements AutoCloseable {
             new ArrayBlockingQueue<>(32), new ThreadPoolExecutor.AbortPolicy());
     private volatile boolean running = true;
     private final int port;
+    private final Set<String> allowedHosts = new HashSet<>();
 
     public PribServer(Path data, Path web, int port) throws IOException {
         this(data, web, port, Path.of("imagenes"));
     }
     public PribServer(Path data, Path web, int port, Path archives) throws IOException {
+        this(data, web, port, archives, Boolean.getBoolean("prib.network"));
+    }
+    public PribServer(Path data, Path web, int port, Path archives, boolean network) throws IOException {
         Files.createDirectories(data);
         preparation = new ImagePreparation(archives, data);
         // Cargar únicamente metadatos y recursos web pequeños antes de aceptar conexiones.
@@ -45,19 +51,35 @@ public final class PribServer implements AutoCloseable {
             }
         }
         if (images.size() > 100) throw new IOException("Máximo 100 imágenes en el catálogo de esta etapa");
-        for (String name : List.of("index.html", "delta.js", "cache.js", "app.js", "style.css", "icon.svg")) {
+        for (String name : List.of("index.html", "delta.js", "cache.js", "metrics.js", "vendor/sha256.js", "app.js", "style.css", "icon.svg")) {
             Path file = web.resolve(name);
             if (Files.size(file) > 524288) throw new IOException("Recurso web demasiado grande");
             assets.put("/" + name, Files.readAllBytes(file));
         }
         selector = Selector.open(); listener = ServerSocketChannel.open();
         try {
-            listener.configureBlocking(false); listener.bind(new InetSocketAddress("127.0.0.1", port));
+            listener.configureBlocking(false);
+            listener.bind(new InetSocketAddress(network ? "0.0.0.0" : "127.0.0.1", port));
             listener.register(selector, SelectionKey.OP_ACCEPT);
             this.port = ((InetSocketAddress)listener.getLocalAddress()).getPort();
+            allowHost("localhost"); allowHost("127.0.0.1");
+            // Lista cerrada de IPv4 propias: no aceptar cualquier Host ni resolver DNS del cliente.
+            // Iniciar Radmin antes del servidor; reiniciar si cambian las interfaces/IP.
+            if (network) for (NetworkInterface adapter : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!adapter.isUp()) continue;
+                for (InetAddress address : Collections.list(adapter.getInetAddresses())) {
+                    if (!(address instanceof Inet4Address) || address.isLoopbackAddress()) continue;
+                    allowHost(address.getHostAddress());
+                    System.out.println("Red [" + adapter.getDisplayName() + "]: http://" + address.getHostAddress() + ":" + this.port);
+                }
+            }
         } catch (IOException error) { listener.close(); selector.close(); workers.shutdownNow(); throw error; }
     }
     public int port() { return port; }
+    private void allowHost(String address) {
+        allowedHosts.add(address + ":" + port);
+        if (port == 80) allowedHosts.add(address); // El navegador omite el puerto HTTP predeterminado.
+    }
     boolean submit(Runnable work) {
         try { workers.execute(work); return true; }
         catch (RejectedExecutionException full) { return false; }
@@ -86,6 +108,7 @@ public final class PribServer implements AutoCloseable {
                 long now = System.nanoTime();
                 for (int turn = clients.size(); turn > 0; turn--) {
                     Client client = clients.removeFirst(); clients.addLast(client);
+                    client.session.log.flush(false);
                     // Límites de tiempo para cabeceras incompletas y conexiones que no responden.
                     long timeout = client.websocket ? 60_000_000_000L : 10_000_000_000L;
                     if (now - client.lastRead > timeout || (client.closing && now - client.closeStarted > 2_000_000_000L)) {
@@ -124,6 +147,7 @@ public final class PribServer implements AutoCloseable {
         Client client = new Client(socket, key); key.attach(client); clients.add(client);
     }
     public void close() { running = false; preparation.close(); selector.wakeup(); }
+    private long activeClients() { return clients.stream().filter(c -> c.websocket && !c.dropped).count(); }
 
     /** El catálogo cambia solamente en el hilo de red; las vistas actuales siguen válidas. */
     void publish(Prepared image) {
@@ -140,7 +164,8 @@ public final class PribServer implements AutoCloseable {
         final ArrayDeque<ByteBuffer> output = new ArrayDeque<>();
         final WebSocketFrames frames = new WebSocketFrames();
         final PribSession session;
-        boolean websocket, closing;
+        boolean websocket, closing, dropped;
+        String authority; // Solo se asigna tras validar Host; se reutiliza en la CSP de esta respuesta.
         long lastRead = System.nanoTime(), lastPing = lastRead, closeStarted;
         long rateStart = lastRead; int messages;
 
@@ -187,8 +212,9 @@ public final class PribServer implements AutoCloseable {
                     throw new IllegalArgumentException("Cabecera repetida");
             }
             String host = headers.getOrDefault("host", "").toLowerCase(Locale.ROOT);
-            if (!host.equals("localhost:" + port) && !host.equals("127.0.0.1:" + port))
+            if (!allowedHosts.contains(host))
                 throw new IllegalArgumentException("Host no admitido");
+            authority = host;
             if (!request[0].equals("GET")) { respond(405, "text/plain", new byte[0]); return; }
             if (headers.containsKey("transfer-encoding") || !headers.getOrDefault("content-length", "0").equals("0"))
                 throw new IllegalArgumentException("GET no admite cuerpo");
@@ -208,7 +234,9 @@ public final class PribServer implements AutoCloseable {
                 } catch (java.security.NoSuchAlgorithmException impossible) { throw new AssertionError(impossible); }
                 enqueue(ByteBuffer.wrap(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: "
                         + accept + "\r\n\r\n").getBytes(StandardCharsets.US_ASCII)));
-                websocket = true; return;
+                websocket = true;
+                session.log.important("CONECTADO", "origen=" + socket.getRemoteAddress() + " clientes=" + activeClients());
+                return;
             }
             String path = request[1].equals("/") ? "/index.html" : request[1];
             byte[] body = assets.get(path);
@@ -218,13 +246,15 @@ public final class PribServer implements AutoCloseable {
         void respond(int status, String mime, byte[] body) {
             String headers = "HTTP/1.1 " + status + " Response\r\nContent-Type: " + mime + "; charset=utf-8\r\nContent-Length: "
                     + body.length + "\r\nConnection: close\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n"
-                    + "Content-Security-Policy: default-src 'self'; connect-src 'self' ws://localhost:" + port
-                    + " ws://127.0.0.1:" + port + "; object-src 'none'; frame-ancestors 'none'\r\n\r\n";
+                    + "Content-Security-Policy: default-src 'self'; connect-src 'self'"
+                    + (authority == null ? "" : " ws://" + authority)
+                    + "; object-src 'none'; frame-ancestors 'none'\r\n\r\n";
             enqueue(ByteBuffer.wrap(headers.getBytes(StandardCharsets.US_ASCII))); enqueue(ByteBuffer.wrap(body)); markClosing();
         }
         void text(Map<String, ?> data) { enqueue(WebSocketFrames.frame(1, Json.encode(data).getBytes(StandardCharsets.UTF_8))); }
         void protocolError(String reason) {
             if (!key.isValid() || closing) return;
+            session.log.important("ERROR", reason == null ? "Error de protocolo" : reason);
             if (!websocket) { respond(400, "text/plain", "Petición inválida".getBytes(StandardCharsets.UTF_8)); return; }
             text(Map.of("version", 1, "type", "ERROR", "message", reason == null ? "Error de protocolo" : reason));
             closeFrame(1008);
@@ -247,6 +277,12 @@ public final class PribServer implements AutoCloseable {
             if (output.isEmpty()) { if (closing) drop(); else key.interestOps(SelectionKey.OP_READ); }
         }
         void drop() {
+            if (dropped) return;
+            dropped = true;
+            if (websocket) {
+                session.log.flush(true);
+                session.log.important("DESCONECTADO", "clientes=" + activeClients());
+            }
             session.disconnected(); key.cancel(); clients.remove(this); output.clear();
             try { socket.close(); } catch (IOException ignored) { }
         }
