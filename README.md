@@ -31,8 +31,12 @@ Para tener las cuatro imágenes actuales (4, 17, 28 y 55 GB), seguir la
 **Si ya tienes imágenes preparadas en `data/`, pasa al paso 3.**
 
 También puedes iniciar el servidor sin imágenes y pulsar **Preparar imagen** en
-la web: selecciona un ZIP de `imagenes/`, el PNG y un nombre nuevo. Verás el
+la web: elige un ZIP de `imagenes/`, una **imagen local** o una **URL directa**
+pública HTTP/HTTPS a la imagen, y un nombre nuevo. Verás el
 avance y aparecerá en el selector al terminar, sin reiniciar.
+PNG conserva el lector por filas para imágenes enormes. JPEG, GIF y BMP se
+identifican por su firma, con límites de 64 MiB de archivo y 16 millones de
+píxeles; GIF utiliza el primer fotograma.
 Los comandos siguientes siguen disponibles como alternativa.
 
 Para comenzar con la imagen pequeña del curso:
@@ -89,7 +93,7 @@ Si el navegador sigue mostrando la versión anterior, usa **Ctrl+F5**.
 | **Mostrar transferencia** | Revisar bloques, bytes, integridad y sesión |
 | **Pantalla completa** | Ampliar el visor; salir con Escape |
 | **Reconectar** | Iniciar una sesión nueva |
-| **Preparar imagen** | Elegir un PNG de un ZIP local y consultar el progreso |
+| **Preparar imagen** | Elegir ZIP, archivo local o URL (PNG/JPEG/GIF/BMP) y consultar el progreso |
 
 El zoom puede superar el 100 % para ver los números más grandes: amplía los
 píxeles originales sin añadir información. Solo se solicitan los bloques
@@ -143,4 +147,22 @@ antes que no hayas elegido esa carpeta para guardar algún almacén preparado.
 | [Protocolo y arquitectura](docs/protocolo.md) | Entender mensajes, almacenamiento, algoritmos, créditos y caché |
 | [Pruebas y resultados](docs/pruebas.md) | Probar manualmente, ejecutar verificaciones y consultar mediciones |
 
-La etapa 8 sigue pendiente para consolidar la entrega y preparar la demostración final.
+## Entregables locales de etapa 8
+
+Se conservan el [documento PRIB anterior](docs/protocolo-prib.md),
+la [guía de demostración](docs/demostracion.md), el [cierre local](docs/etapa-8.md)
+y el [Word para Google Docs](docs/PRIB-Protocolo-y-Demostracion.docx).
+Estos entregables se generaron antes de incorporar la preparación web y las
+nuevas mediciones de 55 GB; el contrato actualizado está en docs/protocolo.md.
+
+La demostración local pequeña usa JDK, Node, Chrome y Playwright ya instalados:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\demo.ps1
+```
+
+Si PowerShell bloquea el servidor por falta de firma digital:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\servidor.ps1
+```

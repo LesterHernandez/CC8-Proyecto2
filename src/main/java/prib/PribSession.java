@@ -3,6 +3,7 @@ package prib;
 import java.nio.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Estado por navegador. Solo el Selector modifica sesiones e inventarios.
@@ -36,6 +37,8 @@ final class PribSession {
 
     PribSession(PribServer server, PribServer.Client client) { this.server = server; this.client = client; }
 
+    void disconnected() { server.preparation.abortUpload(sessionId); }
+
     void receive(String text) {
         Map<String, Object> message = Json.parse(text);
         if (Json.integer(message, "version") != 1) throw new IllegalArgumentException("Versión PRIB no soportada");
@@ -56,11 +59,20 @@ final class PribSession {
         switch (type) {
             case "PREPARE_LIST", "PREPARE_ENTRIES" -> preparationList(type, message);
             case "PREPARE_STATUS" -> send("PREPARE_STATUS", server.preparation.status());
-            case "PREPARE_START" -> {
+            case "PREPARE_START", "PREPARE_URL", "PREPARE_UPLOAD", "PREPARE_CHUNK", "PREPARE_END", "PREPARE_ABORT" -> {
                 try {
-                    if (server.images.size() >= 100) throw new IllegalArgumentException("Máximo 100 imágenes preparadas");
-                    server.preparation.start(Json.text(message, "zip"), Json.text(message, "entry"), Json.text(message, "name"), server::publish);
-                    send("PREPARE_STATUS", server.preparation.status());
+                    if (!type.equals("PREPARE_CHUNK") && !type.equals("PREPARE_END") && !type.equals("PREPARE_ABORT") && server.images.size() >= 100)
+                        throw new IllegalArgumentException("Máximo 100 imágenes preparadas");
+                    Consumer<Long> ack = offset -> server.complete(() -> send("PREPARE_UPLOAD_ACK", Map.of("offset", offset)));
+                    switch (type) {
+                        case "PREPARE_START" -> server.preparation.start(Json.text(message,"zip"), Json.text(message,"entry"), Json.text(message,"name"), server::publish);
+                        case "PREPARE_URL" -> server.preparation.startUrl(Json.text(message,"url"), Json.text(message,"name"), server::publish);
+                        case "PREPARE_UPLOAD" -> server.preparation.startUpload(sessionId, counter(message,"size"), Json.text(message,"name"), server::publish, ack);
+                        case "PREPARE_CHUNK" -> server.preparation.chunk(sessionId, counter(message,"offset"), Json.text(message,"data"), ack);
+                        case "PREPARE_END" -> server.preparation.endUpload(sessionId);
+                        case "PREPARE_ABORT" -> server.preparation.abortUpload(sessionId);
+                    }
+                    if (!type.equals("PREPARE_CHUNK")) send("PREPARE_STATUS", server.preparation.status());
                 } catch (IllegalArgumentException error) { send("PREPARE_ERROR", Map.of("message", error.getMessage())); }
             }
             case "CREDIT_INIT" -> { credit.initialize(Json.integer(message, "capacityBytes")); status(); }

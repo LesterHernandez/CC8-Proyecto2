@@ -247,7 +247,7 @@ public final class PribServer implements AutoCloseable {
             if (output.isEmpty()) { if (closing) drop(); else key.interestOps(SelectionKey.OP_READ); }
         }
         void drop() {
-            key.cancel(); clients.remove(this); output.clear();
+            session.disconnected(); key.cancel(); clients.remove(this); output.clear();
             try { socket.close(); } catch (IOException ignored) { }
         }
     }

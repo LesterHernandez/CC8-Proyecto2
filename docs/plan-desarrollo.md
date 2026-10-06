@@ -25,7 +25,7 @@ la evaluación histórica de ocho imágenes sigue documentada en las pruebas.
 | 5 | Reutilización, prioridades, caché y generaciones | Implementada; REUSE/REF/FULL, caché limitada, prioridades y CANCEL verificados |
 | 6 | DELTA exacto y recuperación selectiva | Implementada; cuatro modos, firmas acotadas y RECOVER a FULL verificados |
 | 7 | Evaluación con imágenes grandes y concurrencia | Implementada; ocho imágenes, hasta 55 GB, cuatro clientes, recursos y recuperación medidos |
-| 8 | Documentación y demostración final | Pendiente; documentación incremental iniciada |
+| 8 | Documentación y demostración final | Demostración y documento locales verificados; pendiente integrar la actualización de preparación web en esos entregables |
 
 ## 1. Base técnica y prueba de bloques
 
@@ -134,3 +134,8 @@ Los nombres anteriores son una convención propuesta, no commits o etiquetas ya
 creados. Los ZIP, datos generados y binarios no se incluyen en los avances.
 Mantener visibles las etapas pendientes evita presentar como implementadas
 funciones que todavía son parte del diseño.
+
+Los entregables locales previos a esta actualización se conservan en
+[protocolo-prib.md](protocolo-prib.md), [demostracion.md](demostracion.md)
+y [etapa-8.md](etapa-8.md), junto con el Word. La referencia actual del código
+es [protocolo.md](protocolo.md).

@@ -28,12 +28,18 @@
     <button id="prepare-open">Preparar imagen</button>
   </section>
   <dialog id="prepare-dialog" aria-labelledby="prepare-title">
-    <h2 id="prepare-title">Preparar imagen desde un ZIP</h2>
-    <p>Coloca el ZIP en la carpeta <strong>imagenes/</strong> del proyecto, sin descomprimirlo. Luego actualiza la lista.</p>
+    <h2 id="prepare-title">Preparar imagen</h2>
+    <p>Elige un ZIP del proyecto, un archivo local o una URL directa a PNG, JPEG, GIF o BMP. PNG requiere RGB de 8 bits sin entrelazado; GIF usa el primer fotograma.</p>
     <form id="prepare-form">
+      <label>Origen<select id="prepare-source"><option value="zip">ZIP del proyecto</option><option value="file">Archivo de imagen local</option><option value="url">URL directa a imagen</option></select></label>
+      <div id="prepare-zip-fields">
+      <p>Coloca el ZIP en <strong>imagenes/</strong>, sin descomprimirlo, y actualiza la lista.</p>
       <label>Archivo ZIP<select id="prepare-zip" required></select></label>
       <button id="prepare-refresh" type="button">Actualizar lista</button>
       <label>Imagen dentro del ZIP<select id="prepare-entry" required></select></label>
+      </div>
+      <div id="prepare-file-fields" hidden><label>Archivo de imagen<input id="prepare-file" type="file" accept="image/png,image/jpeg,image/gif,image/bmp,.png,.jpg,.jpeg,.gif,.bmp" disabled></label></div>
+      <div id="prepare-url-fields" hidden><label>URL de la imagen<input id="prepare-url" type="url" maxlength="2048" placeholder="https://ejemplo.com/imagen.png" disabled></label></div>
       <label>Nombre en el selector<input id="prepare-name" required maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}" placeholder="imagen-nueva"></label>
       <p>Usa letras, números o guiones y un nombre nuevo. Solo se prepara una imagen a la vez; las demás siguen disponibles.</p>
       <progress id="prepare-progress" max="100" value="0"></progress>
@@ -41,7 +47,8 @@
       <button id="prepare-start" type="submit">Preparar</button>
       <button id="prepare-close" type="button">Cerrar</button>
     </form>
-    <p>Cerrar este panel no cancela la preparación. Mantén el servidor encendido.</p>
+    <p>JPEG/GIF/BMP: hasta 64 MiB y 16 millones de píxeles. La transparencia se compone sobre blanco.</p>
+    <p>Cerrar este panel no cancela la preparación. Mantén el servidor encendido. Una subida de imagen requiere mantener la pestaña conectada hasta terminar el envío. Se guardan bloques en data/: cambiar el origen no elimina el espacio necesario.</p>
   </dialog>
   <div class="layout">
     <section class="viewer">

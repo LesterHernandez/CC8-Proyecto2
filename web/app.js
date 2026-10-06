@@ -237,6 +237,7 @@ async function receive(data, generation) {
 function connect() {
   // Una reconexión crea sesión y ventana nuevas; conserva solo la región elegida.
   resumeView = current ? {imageId: current.imageId, level, magnification, x, y} : resumeView;
+  failUpload('La sesión cambió durante la subida');
   const generation = ++epoch;
   releasedBytes = lastGrantedBytes = 0; grantId = 0; grantsPaused = false; cache.reset();
   $('pause-credit').disabled = true; $('pause-credit').textContent = 'Pausar devoluciones';
@@ -272,6 +273,7 @@ function connect() {
   };
   ws.onclose = () => {
     if (generation !== epoch) return;
+    failUpload('La conexión se cerró durante la subida');
     $('pause-credit').disabled = true; $('credit-state').textContent = 'Sesión cerrada';
     $('connection').textContent = 'Desconectado'; $('view-state').textContent = 'Conexión cerrada';
     setControlsEnabled(false);
@@ -280,24 +282,54 @@ function connect() {
 }
 $('image').onchange = () => selectImage();
 // La tarea pertenece al servidor, no a la pestaña: consultar recupera su estado al reconectar.
-let preparationBusy = false;
+let preparationBusy = false, uploadSending = false, uploadReply;
+function failUpload(message) {
+  if (uploadReply) { clearTimeout(uploadReply.timer); const reject=uploadReply.reject;uploadReply=null;reject(new Error(message)); }
+}
+function waitUpload(type, fields, offset) {
+  return new Promise((resolve,reject)=>{
+    const timer=setTimeout(()=>{uploadReply=null;reject(new Error('La subida no respondió a tiempo'));},60000);
+    uploadReply={resolve,reject,timer,offset};send(type,fields);
+  });
+}
+function prepareButton() {
+  const mode=$('prepare-source').value;
+  const valid=mode==='zip'?Boolean($('prepare-entry').value):mode==='file'?Boolean($('prepare-file').files[0]):$('prepare-url').validity.valid&&Boolean($('prepare-url').value.trim());
+  $('prepare-start').disabled=preparationBusy||uploadSending||!valid;
+}
+function prepareSource() {
+  const mode=$('prepare-source').value;
+  for(const [id,active] of [['zip',mode==='zip'],['file',mode==='file'],['url',mode==='url']]) {
+    $('prepare-'+id+'-fields').hidden=!active;
+    for(const input of $('prepare-'+id+'-fields').querySelectorAll('input,select')){input.disabled=!active;input.required=active;}
+  }
+  $('prepare-status').textContent=mode==='zip'?'Selecciona un ZIP y una imagen.':mode==='file'?'Selecciona una imagen local.':'Introduce una URL directa pública HTTP o HTTPS.';
+  prepareButton();
+}
+$('prepare-source').onchange=prepareSource;
+$('prepare-file').onchange=prepareButton;
+$('prepare-url').oninput=prepareButton;
 function preparationMessage(message) {
+  if (message.type === 'PREPARE_UPLOAD_ACK') {
+    if(uploadReply&&message.offset===uploadReply.offset){const reply=uploadReply;uploadReply=null;clearTimeout(reply.timer);reply.resolve();}
+    return;
+  }
   if (message.type === 'PREPARE_LIST') {
     $('prepare-zip').replaceChildren(); $('prepare-entry').replaceChildren();
     message.items.forEach(name => $('prepare-zip').add(new Option(name, name)));
     if (message.items.length) send('PREPARE_ENTRIES', {zip: $('prepare-zip').value});
-    else $('prepare-status').textContent = 'No hay ZIP. Colócalos en imagenes/ y actualiza la lista.';
+    else if($('prepare-source').value==='zip') $('prepare-status').textContent = 'No hay ZIP. Colócalos en imagenes/ y actualiza la lista.';
   } else if (message.type === 'PREPARE_ENTRIES') {
     if (message.zip !== $('prepare-zip').value) return;
     $('prepare-entry').replaceChildren();
     message.items.forEach(name => $('prepare-entry').add(new Option(name, name)));
-    if (!message.items.length) $('prepare-status').textContent = 'Este ZIP no contiene entradas PNG.';
+    if (!message.items.length && $('prepare-source').value==='zip') $('prepare-status').textContent = 'Este ZIP no contiene entradas de imagen.';
   } else if (message.type === 'PREPARE_STATUS') {
     preparationBusy = message.state === 'RUNNING';
-    $('prepare-progress').value = message.percent;
-    $('prepare-status').textContent = message.message;
-  } else if (message.type === 'PREPARE_ERROR') $('prepare-status').textContent = message.message;
-  $('prepare-start').disabled = preparationBusy || !$('prepare-entry').value;
+    if(!uploadSending){$('prepare-progress').value=message.percent;$('prepare-status').textContent=message.message;}
+    if(message.state==='FAILED'){failUpload(message.message);$('prepare-status').textContent=message.message;}
+  } else if (message.type === 'PREPARE_ERROR') {failUpload(message.message);$('prepare-status').textContent=message.message;}
+  prepareButton();
 }
 $('prepare-open').onclick = () => {
   $('prepare-dialog').showModal();
@@ -313,11 +345,31 @@ $('prepare-zip').onchange = () => {
   $('prepare-entry').replaceChildren(); $('prepare-start').disabled = true;
   send('PREPARE_ENTRIES', {zip: $('prepare-zip').value});
 };
-$('prepare-form').onsubmit = event => {
+$('prepare-form').onsubmit = async event => {
   event.preventDefault();
   if (!sessionId || socket?.readyState !== WebSocket.OPEN) { $('prepare-status').textContent = 'Reconecta con el servidor.'; return; }
   $('prepare-start').disabled = true;
-  send('PREPARE_START', {zip: $('prepare-zip').value, entry: $('prepare-entry').value, name: $('prepare-name').value.trim()});
+  const mode=$('prepare-source').value,name=$('prepare-name').value.trim();
+  if(mode==='zip'){send('PREPARE_START',{zip:$('prepare-zip').value,entry:$('prepare-entry').value,name});return;}
+  if(mode==='url'){send('PREPARE_URL',{url:$('prepare-url').value.trim(),name});return;}
+  const file=$('prepare-file').files[0];if(!file)return;
+  uploadSending=true;prepareButton();const connection=socket;
+  try {
+    if(file.size<33)throw new Error('Selecciona un archivo de imagen válido');
+    $('prepare-status').textContent='Iniciando subida de imagen…';
+    await waitUpload('PREPARE_UPLOAD',{size:file.size,name},0);
+    for(let offset=0;offset<file.size;){
+      if(socket!==connection||connection.readyState!==WebSocket.OPEN)throw new Error('La conexión cambió durante la subida');
+      const bytes=new Uint8Array(await file.slice(offset,offset+4096).arrayBuffer());
+      const data=btoa(String.fromCharCode(...bytes));
+      await waitUpload('PREPARE_CHUNK',{offset,data},offset+bytes.length);offset+=bytes.length;
+      $('prepare-progress').value=Math.floor(offset/file.size*99);
+      $('prepare-status').textContent=`Enviando imagen: ${Math.floor(offset/file.size*100)} %`;
+    }
+    send('PREPARE_END');$('prepare-status').textContent='Imagen enviada. Terminando preparación…';
+  } catch(error){if(socket===connection&&connection.readyState===WebSocket.OPEN)send('PREPARE_ABORT');$('prepare-status').textContent=error.message;}
+  finally{uploadSending=false;prepareButton();send('PREPARE_STATUS');}
+
 };
 setInterval(() => {
   if ($('prepare-dialog').open && sessionId && socket?.readyState === WebSocket.OPEN) send('PREPARE_STATUS');

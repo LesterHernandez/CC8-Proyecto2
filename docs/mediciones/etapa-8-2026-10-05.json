@@ -1,0 +1,119 @@
+{
+  "date": "2026-10-05T23:35:20.278Z",
+  "fixture": "512x128; semilla 6106; cuatro bloques RGB",
+  "java": "21.0.11",
+  "node": "v24.19.0",
+  "tests": [
+    {
+      "label": "ClientCacheTest",
+      "code": 0,
+      "output": "PASS cach�: REUSE/REF exactos, geometr�a, secuencia, DROP, l�mites y prioridad\r\n"
+    },
+    {
+      "label": "DeltaCodecTest",
+      "code": 0,
+      "output": "PASS DELTA: XOR exacto, 100 casos, bordes, formatos inv�lidos, ahorro, firmas e �ndice de cuatro candidatos\r\n"
+    },
+    {
+      "label": "DeltaProtocolTest",
+      "code": 0,
+      "output": "Preparando 512 x 128; hasta 0.00 GiB de salida sin compresi�n\r\nImagen: delta.png\r\nDimensiones: 512 x 128\r\nNiveles: 3\r\nSalida medida (packs, �ndices y manifiesto): 236370 bytes\r\nEstimaci�n m�xima previa: 323920 bytes\r\nTemporales de imagen completa: 0 bytes\r\nTiempo: 0.108 s\r\nHeap observado: 7.93 MiB (muestreo, no RSS ni pico exacto)\r\nPRIB: http://localhost:60617 � 1 im�genes. Ctrl+C para detener.\r\nDELTA fixture: 30 bytes de payload, 562 bytes PRIB para 49152 RGB\r\nPASS etapa 6: cuatro modos, recuperaci�n selectiva de cuatro causas, cr�ditos, generaciones y l�mite de reintentos\r\nFixture navegador: C:\\Users\\Herocha\\Documents\\cc8\\CC8-Proyecto2\\build\\delta-test-3575583580454779739\\data\r\n"
+    },
+    {
+      "label": "test-cache",
+      "code": 0,
+      "output": "PASS caché navegador: presupuesto, bases protegidas, generaciones, utilidad, inventario y reinicio\n"
+    },
+    {
+      "label": "test-delta",
+      "code": 0,
+      "output": "PASS Java/JS: RGB y firmas idénticos, DELTA inválido, base ausente, caché desajustada y hashes incorrectos\n"
+    },
+    {
+      "label": "Chrome cuatro modos y cuatro recuperaciones",
+      "code": 0,
+      "output": "PASS Chrome etapa 6: {\"full\":{\"modes\":{\"FULL\":1,\"REUSE\":0,\"REF\":0,\"DELTA\":0},\"bytes\":49528,\"recoveries\":0,\"verified\":1,\"expected\":1,\"holds\":0},\"delta\":{\"modes\":{\"FULL\":0,\"REUSE\":0,\"REF\":0,\"DELTA\":1},\"bytes\":563,\"recoveries\":0,\"verified\":1,\"expected\":1,\"holds\":0}} cuatro modos, cuatro recuperaciones reales, RGB exacto y bases liberadas\n"
+    },
+    {
+      "label": "Chrome créditos, generaciones y reconexión",
+      "code": 0,
+      "output": "PASS demo: caché REUSE, dos sesiones, WAIT_CREDIT, reanudación, 12 generaciones y reconexión con deuda\n"
+    }
+  ],
+  "browser": {
+    "repeated": {
+      "modes": {
+        "FULL": 0,
+        "REUSE": 4,
+        "REF": 0,
+        "DELTA": 0
+      },
+      "bytes": 2097,
+      "verified": 4,
+      "expected": 4
+    },
+    "paused": {
+      "state": "Esperando crédito",
+      "outstanding": "242.9 KiB"
+    },
+    "cancelled": 19,
+    "final": {
+      "verified": 4,
+      "expected": 4,
+      "cacheBytes": 196608,
+      "holds": 0,
+      "connection": "Conectado",
+      "error": null
+    },
+    "slowClientStopped": true,
+    "otherClientCompleted": true,
+    "reconnectedWithDebt": true,
+    "errors": []
+  },
+  "screenshots": [
+    "build/browser-check/etapa-6-delta.png",
+    "build/browser-check/etapa-6-recuperacion.png",
+    "build/browser-check/etapa-8-creditos.png"
+  ],
+  "sourceSha256": {
+    "src/main/java/prib/BlockPriority.java": "e2a661a9e10676685f3aebb5bf7ff98ccdd32c1496b447aa1aacd72553cb7677",
+    "src/main/java/prib/ClientCache.java": "39d4df7c88aab693526df46056cfd1124a918a894bfc0d96b9b6f473004808b7",
+    "src/main/java/prib/CreditWindow.java": "17535b641d9039c87c401cce17f6c1a478e6624952d4c663455ad9f954a64d8f",
+    "src/main/java/prib/DeltaCodec.java": "52357d6e147cf9f669a676de4b6314cf7a3ce05295b370c6ddae95592617a11b",
+    "src/main/java/prib/ImageStore.java": "654254b66101e5e77aa394bd97f92eb95ab16eaaa0bea5030699418c30327cfc",
+    "src/main/java/prib/Json.java": "927f295acfe9ac65a25c0a2368875ec7d98f2c763c74d7ca3e95abf093a0f175",
+    "src/main/java/prib/PngRows.java": "674ea2bdaa27684d6efd65a3e8e7c4a65eba72324f44eb87207172cc9060aadc",
+    "src/main/java/prib/PrepareImage.java": "7d7db230f705e485c2a1bec67abe05d36bef08d3bb4cc28bf11330550c439c57",
+    "src/main/java/prib/PribServer.java": "654440905831935fd5334c02b19b0ea4573b29499a34ffa13342dc3565acb93c",
+    "src/main/java/prib/PribSession.java": "233fcb879d12e3307d2abc80ccb256ae3c6e4aa3eedbf0d72f247238c1b1dcad",
+    "src/main/java/prib/Probe.java": "ba48858bfc98efa487ed1193f7f896530829afd33369cbc2b884dcd5b2da8001",
+    "src/main/java/prib/SimilarityIndex.java": "beb1c294ba509001563e17057af0e3b43dbfbef566ebf7f8a3c726127fd47cfc",
+    "src/main/java/prib/ViewRegion.java": "737eb363825f55141410fac8219b06cd5ed305f45c38c8c9e9150ff6368dacfa",
+    "src/main/java/prib/WebSocketFrames.java": "87f396e6969fd69c6bd6957bd0171fd6907efe9b82379db05d311b1b19f9ff6f",
+    "src/test/java/prib/ClientCacheTest.java": "af1a8905d71a86981ac24a68a33179816848d644f0122e54ceea01b27cefa512",
+    "src/test/java/prib/CreditWindowTest.java": "907bdad6059a5efeafc530eaa9653ae3798fc10078853b71667b39687e0a6f53",
+    "src/test/java/prib/DeltaCodecTest.java": "40ae1af9bb873ae40376a4f97e8ce55bc21a9f7801ecb5301fc07bf25f897596",
+    "src/test/java/prib/DeltaProtocolTest.java": "5fab61021f136411bc3467de51f6a08de4d8a804bd6b37d9cec4c9c7993407d3",
+    "src/test/java/prib/ImageStoreTest.java": "6e8a90e6b0789d4c02f54a202b4e8dce90f35f84c39bd138f67feed6ecd4a24c",
+    "src/test/java/prib/PngRowsTest.java": "9b402387ffd1c98c9fe6cbe6c8a9e072b09150bd34623bb1cebc8742f104fe11",
+    "src/test/java/prib/PribServerTest.java": "5d0c4bb0ec39f35b17f2de601ab68e25ee62eea71543532d8033500c244c953f",
+    "web/app.js": "8262d66bc0e37ac1643e273093a4b3fac8d736799bd5f1923052c71f0aea86a8",
+    "web/cache.js": "13795d6d5147a32d5cce0db03646fd2f27b5fd32a8ab36ff11bbdd78fb4c9593",
+    "web/delta.js": "501795fce70cffd488fa9c074fee81e6af4bf0004a1f518b77d8eeeb5fa1ac76",
+    "web/icon.svg": "13324083b3129e6e9773c3f0312828171bb7419a12c9bb29ba09ab3593ac0c25",
+    "web/index.html": "55ccab8d38c6385d7042e108068d1dd29ee98067dc447a112c462464fd96bb95",
+    "web/style.css": "d6e18f575eb2437c592c34ab51486645c1bd466e6e4e833ec4dd73ed66dda6e4",
+    "scripts/browser/common.cjs": "4fc1ee5af15653ed6dc1c35b7737a9dcaca93621a130d966b4f3d408475b3738",
+    "scripts/browser/credits.cjs": "9fd775565531c18b5dc5bfdf72841248e72e54acd96cb92f37d90507fc6066d2",
+    "scripts/browser/delta.cjs": "08470805d8c47cf4a6e862287e8b71fcf25119a9cfab27e2ba73aa84c538a584",
+    "scripts/browser/demo.cjs": "158077882973d2963f07929cb5ca9c77346297b7ba8cb27ef7372f8d53a9896d",
+    "scripts/browser/evaluation.cjs": "15a220348566593504a5508fd6f621292a8e5f46f67a5e595153ccabcb0f5047",
+    "scripts/browser/responsive.cjs": "653a083e34f71636d65d5b802b86448f024a0aeb92f992fa7dfc6312b8f09e97",
+    "scripts/browser/reuse.cjs": "e1f057cdd09d7748e7df83a3f7e079980132ac5c04f0e6fa87a8e75d82650d2e",
+    "scripts/browser/run.cjs": "fa9319a244aeb0b73d8455e7ce4efa9cbdd6635477bea2b8462ccb30be67e2c6",
+    "scripts/browser/sessions.cjs": "7ec7f2af38b38b338d9a5569fb9535508387d5782f03cb9fd82689c73e3d3425",
+    "scripts/browser/zoom.cjs": "80b696a2a2b4c3c74afdaa6121ef081624ad587c0d6362507f16f5e6bb78fd81",
+    "scripts/demo.ps1": "fee695a9fa60a75c1807aaa5c64371304325a03dce7a96b1da7dd8dafd6879f9",
+    "scripts/demonstrate.cjs": "fb9c7756a22369b6ab5dc604d85b45fc6b141dd1ce09f0b6585eb33f9809d3e0"
+  }
+}

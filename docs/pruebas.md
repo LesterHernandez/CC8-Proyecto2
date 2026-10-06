@@ -420,3 +420,36 @@ verificaron regiones muestreadas, no cada píxel mediante un decodificador indep
 Las pruebas son locales: no demuestran una red WAN, 32 clientes ni ejecución indefinida.
 No se probó la imagen de 93 GB. El máximo demostrado es 136325 × 136325 (55 GB).
 Se mantienen las políticas actuales y la etapa 8 sigue pendiente.
+
+
+## Verificación de PNG local y URL directa
+
+`./scripts/test.ps1` incluye ImageSourcesTest: RGB exacto, fragmentos y offsets,
+sesión propietaria, interrupción, una tarea global, URLs inválidas, HTML,
+redirecciones y bucles, no sobrescritura y recuperación tras fallo.
+
+Con Node.js y Playwright instalados, después de generar las fixtures con la
+suite Java, ejecutar desde la raíz:
+
+```powershell
+node scripts/browser/preparation.cjs
+node scripts/browser/sources.cjs
+```
+
+Las pruebas usan servidores temporales, PNG sintéticos y Chrome. La primera
+conserva la regresión ZIP; la segunda verifica PNG local, URL con redirección,
+hashes RGB, errores y reintento, catálogo en dos pestañas y la opción ZIP.
+No preparan ni descargan la imagen de 55 GB.
+
+
+### Firmas JPEG, GIF y BMP
+
+ImageFormatsTest comprueba RGB contra ImageIO, extensión incorrecta, preparación
+ZIP de cada formato, JPEG por fragmentos, transparencia blanca de GIF y rechazo
+de dimensiones excesivas/HTML. Se incluye en `scripts/test.ps1`.
+
+La prueba Chrome `sources.cjs` también admite `PRIB_SOURCE_FIXTURE=build/formats-fixture.json`
+para repetir subida local, URL/redirección y hashes con JPEG. Pasaron las pruebas
+Java y Chrome para PNG y JPEG y la regresión ZIP. El enlace del usuario
+https://cdn.eso.org/images/screen/eso1242a.jpg se preparó por URL: 1280 × 964,
+5 niveles, aproximadamente 3,17 MB de almacén en una carpeta de prueba de `build/`.

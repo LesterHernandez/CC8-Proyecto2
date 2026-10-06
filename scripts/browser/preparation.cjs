@@ -41,7 +41,7 @@ const {launch}=require('./common.cjs');
     await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('ya existe'),null,{timeout:10000});
     assert.equal(await page.locator('#connection').textContent(),'Conectado');
     await page.selectOption('#prepare-entry','incorrecta.png');await page.fill('#prepare-name','invalida');await page.click('#prepare-start');
-    await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('PNG'),null,{timeout:10000});
+    await page.waitForFunction(()=>document.querySelector('#prepare-status').textContent.includes('Firma'),null,{timeout:10000});
     await page.selectOption('#prepare-entry','carpeta/imagen.png');await page.fill('#prepare-name','segunda');await page.click('#prepare-start');
     await page.waitForFunction(()=>document.querySelector('#image').options.length===2,null,{timeout:20000});
     await page.click('#prepare-close');await page.selectOption('#image',{label:'segunda'});

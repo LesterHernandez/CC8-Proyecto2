@@ -27,6 +27,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas DELTA/RECOVER por red' }
     java -Xmx256m -cp build/classes prib.ImagePreparationTest
     if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de preparación web' }
+    java -Xmx256m -cp build/classes prib.ImageSourcesTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas PNG local y URL' }
+    java -Xmx256m -cp build/classes prib.ImageFormatsTest
+    if ($LASTEXITCODE -ne 0) { throw 'Fallaron las pruebas de firmas de imagen' }
 } finally {
     Pop-Location # Restaurar la ubicación de quien invocó el script.
 }

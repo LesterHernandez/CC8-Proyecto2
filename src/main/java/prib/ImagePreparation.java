@@ -42,38 +42,71 @@ final class ImagePreparation implements AutoCloseable {
     }
     List<String> entries(String name) throws IOException {
         try (ZipFile zip = new ZipFile(archive(name).toFile())) {
-            List<String> names = zip.stream().filter(e -> !e.isDirectory() && e.getName().toLowerCase(Locale.ROOT).endsWith(".png"))
+            List<String> names = zip.stream().filter(e -> !e.isDirectory() && ImageRows.supportedName(e.getName()))
                     .map(ZipEntry::getName).limit(1001).toList();
             if (names.size() > 1000 || names.stream().mapToInt(String::length).sum() > 60000)
-                throw new IOException("Demasiadas entradas PNG para el selector");
+                throw new IOException("Demasiadas entradas de imagen para el selector");
             return names;
         }
     }
 
-    synchronized void start(String zip, String entry, String name, Consumer<PribServer.Prepared> publish) {
-        if (closed) throw new IllegalArgumentException("Servidor cerrándose");
-        if (busy) throw new IllegalArgumentException("Ya hay una preparación activa; espera a que termine");
+    private final ExecutorService inputWorker = Executors.newSingleThreadExecutor();
+    private final ScheduledExecutorService watchdog = Executors.newSingleThreadScheduledExecutor();
+    private Upload upload;
+    private static final class Upload {
+        final String owner; final long size;
+        final CompletableFuture<Void> ended = new CompletableFuture<>();
+        long offset, lastActivity = System.nanoTime(); boolean writing, ending;
+        OutputStream input;
+        Upload(String owner, long size) { this.owner = owner; this.size = size; }
+    }
+    private void validateName(String name) {
         if (!name.matches("[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}") || name.matches("(?i)(CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])"))
             throw new IllegalArgumentException("Nombre: 1 a 64 letras, números, guiones o guion bajo; sin rutas");
-        busy = true; status = Map.of("state", "RUNNING", "percent", 0, "name", name, "message", "Validando imagen y espacio disponible…");
+    }
+    synchronized void start(String zip, String entry, String name, Consumer<PribServer.Prepared> publish) {
+        begin("ZIP", zip, entry, name, null, publish, null);
+    }
+    synchronized void startUrl(String url, String name, Consumer<PribServer.Prepared> publish) {
+        try { PngSource.validate(url); } catch (IOException e) { throw new IllegalArgumentException(e.getMessage()); }
+        begin("URL", url, "", name, null, publish, null);
+    }
+    synchronized void startUpload(String owner, long size, String name, Consumer<PribServer.Prepared> publish, Consumer<Long> ready) {
+        if (size < 33 || size > CreditWindow.MAX_COUNTER) throw new IllegalArgumentException("Archivo de imagen vacío o tamaño inválido");
+        begin("UPLOAD", "", "", name, new Upload(owner, size), publish, ready);
+    }
+    private synchronized void begin(String mode, String sourceName, String entry, String name, Upload incoming,
+                                    Consumer<PribServer.Prepared> publish, Consumer<Long> ready) {
+        if (closed) throw new IllegalArgumentException("Servidor cerrándose");
+        if (busy) throw new IllegalArgumentException("Ya hay una preparación activa; espera a que termine");
+        validateName(name);
+        busy = true; upload = incoming;
+        status = Map.of("state", "RUNNING", "percent", 0, "name", name, "message", "Validando imagen y espacio disponible…");
+        if (incoming != null) watchdog.schedule(() -> checkUpload(incoming), 5, TimeUnit.SECONDS);
         worker.execute(() -> {
+            Process child = null;
             try {
-                Path source = archive(zip);
-                if (!entry.toLowerCase(Locale.ROOT).endsWith(".png")) throw new IOException("Selecciona una entrada PNG");
-                Files.createDirectories(data);
-                Path output = data.toRealPath().resolve(name);
+                Files.createDirectories(data); Path output = data.toRealPath().resolve(name);
                 if (Files.exists(output, LinkOption.NOFOLLOW_LINKS)) throw new IOException("La carpeta de destino ya existe; elige otro nombre");
+                String source, option;
+                if (mode.equals("ZIP")) {
+                    source = archive(sourceName).toString(); option = entry;
+                    if (!ImageRows.supportedName(entry)) throw new IOException("Selecciona una entrada de imagen");
+                } else { source = mode.equals("UPLOAD") ? "--stdin" : "--url"; option = mode.equals("UPLOAD") ? "imagen local" : sourceName; }
                 String java = Path.of(System.getProperty("java.home"), "bin", "java.exe").toString();
                 if (!Files.exists(Path.of(java))) java = Path.of(System.getProperty("java.home"), "bin", "java").toString();
                 synchronized (this) {
-                    if (closed) throw new IOException("Preparación detenida al cerrar el servidor");
-                    process = new ProcessBuilder(java, "-Xmx256m", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8", "-cp",
-                            System.getProperty("java.class.path"), "prib.PrepareImage", source.toString(), entry, output.toString())
-                            .redirectErrorStream(true).start();
+                    if (closed || incoming != null && incoming.ended.isCompletedExceptionally()) throw new IOException("Preparación detenida");
+                    child = new ProcessBuilder(java, "-Xmx256m", "-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8",
+                            "-Dprib.allowLocalImageUrls=" + Boolean.getBoolean("prib.allowLocalImageUrls"), "-cp",
+                            System.getProperty("java.class.path"), "prib.PrepareImage", source, option, output.toString()).redirectErrorStream(true).start();
+                    process = child;
+                    if (incoming != null) incoming.input = child.getOutputStream();
                 }
+                if (ready != null) ready.accept(0L);
                 Pattern progress = Pattern.compile("Filas: .*\\(([0-9.]+)%\\).*" );
                 String problem = "No se pudo preparar la imagen";
-                try (BufferedReader reader = process.inputReader(StandardCharsets.UTF_8)) {
+                try (BufferedReader reader = child.inputReader(StandardCharsets.UTF_8)) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         Matcher match = progress.matcher(line);
@@ -83,20 +116,62 @@ final class ImagePreparation implements AutoCloseable {
                                 ? "Archivo truncado o no válido" : line.substring(line.indexOf(":") + 1).trim();
                     }
                 }
-                if (process.waitFor() != 0) throw new IOException("No se pudo preparar el PNG: " + problem + ". Si quedó una carpeta incompleta, usa otro nombre.");
-                ImageStore store = new ImageStore(output);
-                // Publicar en el Selector antes de anunciar la finalización a las sesiones.
-                publish.accept(new PribServer.Prepared(name, store));
+                if (child.waitFor() != 0) throw new IOException("No se pudo preparar la imagen: " + problem + ". Si quedó una carpeta incompleta, usa otro nombre.");
+                if (incoming != null) { incoming.ended.get(60, TimeUnit.SECONDS); Files.delete(output.resolve("INCOMPLETE")); }
+                ImageStore store = new ImageStore(output); publish.accept(new PribServer.Prepared(name, store));
                 status = Map.of("state", "DONE", "name", name, "percent", 100, "message", "Imagen preparada: " + name);
             } catch (Exception error) {
                 status = Map.of("state", "FAILED", "name", name, "percent", 0,
                         "message", error.getMessage() == null ? "No se pudo preparar la imagen" : error.getMessage());
-            } finally { synchronized (this) { busy = false; process = null; } }
+            } finally {
+                if (child != null) child.destroy();
+                synchronized (this) { busy = false; process = null; if (upload == incoming) upload = null; }
+            }
         });
+    }
+    private synchronized Upload owned(String owner) {
+        if (upload == null || !upload.owner.equals(owner)) throw new IllegalArgumentException("No hay una subida de imagen activa en esta sesión");
+        return upload;
+    }
+    synchronized void chunk(String owner, long offset, String encoded, Consumer<Long> acknowledged) {
+        Upload item = owned(owner);
+        byte[] bytes;
+        try { bytes = Base64.getDecoder().decode(encoded); } catch (IllegalArgumentException e) { throw new IllegalArgumentException("Fragmento de imagen inválido"); }
+        if (item.writing || item.ending || item.input == null || offset != item.offset || bytes.length < 1 || bytes.length > 4096 || bytes.length > item.size-item.offset)
+            throw new IllegalArgumentException("Fragmento fuera de secuencia; espera la confirmación");
+        item.writing = true; item.lastActivity = System.nanoTime();
+        inputWorker.execute(() -> {
+            try {
+                item.input.write(bytes); item.input.flush();
+                long next;
+                synchronized (this) { item.offset += bytes.length; next = item.offset; item.writing = false; item.lastActivity = System.nanoTime(); }
+                acknowledged.accept(next);
+            } catch (IOException error) { abortUpload(owner); }
+        });
+    }
+    synchronized void endUpload(String owner) {
+        Upload item = owned(owner);
+        if (item.writing || item.ending || item.offset != item.size) throw new IllegalArgumentException("La subida de imagen está incompleta");
+        item.ending = true;
+        inputWorker.execute(() -> {
+            try { item.input.close(); item.ended.complete(null); }
+            catch (IOException e) { item.ended.completeExceptionally(e); }
+        });
+    }
+    synchronized void abortUpload(String owner) {
+        if (upload == null || !upload.owner.equals(owner) || upload.ending) return;
+        upload.ended.completeExceptionally(new IOException("Subida imagen interrumpida"));
+        if (process != null) process.destroy();
+    }
+    private synchronized void checkUpload(Upload item) {
+        if (upload != item || item.ending || closed) return;
+        if (System.nanoTime()-item.lastActivity > 60_000_000_000L) abortUpload(item.owner);
+        else watchdog.schedule(() -> checkUpload(item), 5, TimeUnit.SECONDS);
     }
     public synchronized void close() {
         closed = true;
         if (process != null) process.destroy();
-        worker.shutdownNow();
+        if (upload != null) upload.ended.completeExceptionally(new IOException("Servidor detenido"));
+        inputWorker.shutdownNow(); watchdog.shutdownNow(); worker.shutdownNow();
     }
 }

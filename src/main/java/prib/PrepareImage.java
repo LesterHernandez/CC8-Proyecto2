@@ -5,9 +5,9 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.zip.*;
 
-/** Prepara una pirámide de resolución en una sola lectura del ZIP.
+/** Prepara una pirámide RGB desde ZIP, subida o URL.
  * Cada nivel mantiene una franja pequeña y entrega filas reducidas al siguiente.
- * Nunca se materializa la imagen completa ni un nivel completo en RAM.
+ * PNG no materializa la imagen completa. JPEG/GIF/BMP tienen decodificación acotada.
  */
 public final class PrepareImage {
     private static final long DISK_RESERVE = 256L * 1024 * 1024;
@@ -15,17 +15,27 @@ public final class PrepareImage {
     public static void main(String[] args) throws Exception {
         if (args.length != 3)
             throw new IllegalArgumentException("Uso: PrepareImage archivo.zip entrada.png directorio-nuevo");
-        prepare(Path.of(args[0]), args[1], Path.of(args[2]));
+        if (args[0].equals("--stdin")) prepare(System.in, args[1], Path.of(args[2]), false);
+        else if (args[0].equals("--url")) {
+            try (InputStream input = PngSource.open(args[1])) { prepare(input, "Imagen desde URL", Path.of(args[2])); }
+        } else prepare(Path.of(args[0]), args[1], Path.of(args[2]));
     }
 
     public static void prepare(Path archive, String entryName, Path output) throws IOException {
-        long start = System.nanoTime(), peakHeap = 0;
-        if (Files.exists(output)) throw new IOException("La carpeta de salida debe ser nueva");
         try (ZipFile zip = new ZipFile(archive.toFile())) {
             ZipEntry entry = zip.getEntry(entryName);
-            if (entry == null || entry.isDirectory()) throw new IOException("PNG no encontrado en el ZIP");
-            // El stream externo también se cierra si el constructor del lector rechaza el PNG.
-            try (InputStream input = zip.getInputStream(entry); PngRows png = new PngRows(input)) {
+            if (entry == null || entry.isDirectory()) throw new IOException("Imagen no encontrada en el ZIP");
+            try (InputStream input = zip.getInputStream(entry)) { prepare(input, entryName, output); }
+        }
+    }
+
+    static void prepare(InputStream input, String entryName, Path output) throws IOException {
+        prepare(input, entryName, output, true);
+    }
+    private static void prepare(InputStream input, String entryName, Path output, boolean complete) throws IOException {
+        long start = System.nanoTime(), peakHeap = 0;
+        if (Files.exists(output)) throw new IOException("La carpeta de salida debe ser nueva");
+        try (ImageRows png = new ImageRows(input)) {
                 Path parent = output.toAbsolutePath().getParent(); Files.createDirectories(parent);
                 long worstCase = estimateDisk(png.width, png.height);
                 long available = Files.getFileStore(parent).getUsableSpace();
@@ -59,7 +69,7 @@ public final class PrepareImage {
                 }
                 // Publicar el manifiesto al final: todos los packs e índices ya están cerrados.
                 info.setProperty("version", "1"); info.setProperty("imageId", UUID.randomUUID().toString());
-                info.setProperty("source", entryName); info.setProperty("format", "RGB8");
+                info.setProperty("source", entryName); info.setProperty("sourceFormat", png.sourceFormat); info.setProperty("format", "RGB8");
                 info.setProperty("blockSize", Integer.toString(ImageStore.BLOCK));
                 info.setProperty("width", Integer.toString(png.width)); info.setProperty("height", Integer.toString(png.height));
                 info.setProperty("levels", Integer.toString(levels)); info.setProperty("downsample", "box-2x2-floor");
@@ -72,13 +82,12 @@ public final class PrepareImage {
                             .mapToLong(p -> p.toFile().length()).sum();
                 }
                 String report = String.format(Locale.ROOT,
-                        "Imagen: %s%nDimensiones: %d x %d%nNiveles: %d%nSalida medida (packs, índices y manifiesto): %d bytes%nEstimación máxima previa: %d bytes%nTemporales de imagen completa: 0 bytes%nTiempo: %.3f s%nHeap observado: %.2f MiB (muestreo, no RSS ni pico exacto)%n",
+                        "Imagen: %s%nDimensiones: %d x %d%nNiveles: %d%nSalida medida (packs, índices y manifiesto): %d bytes%nEstimación máxima previa: %d bytes%nTemporal comprimido: PNG 0 bytes; JPEG/GIF/BMP hasta 64 MiB, eliminado al decodificar%nTiempo: %.3f s%nHeap observado: %.2f MiB (muestreo, no RSS ni pico exacto)%n",
                         entryName, png.width, png.height, levels, size, worstCase,
                         (System.nanoTime()-start)/1e9, peakHeap/1048576.0);
                 Files.writeString(output.resolve("result.txt"), report);
-                Files.delete(output.resolve("INCOMPLETE"));
+                if (complete) Files.delete(output.resolve("INCOMPLETE"));
                 System.out.print(report);
-            }
         }
     }
 
@@ -112,7 +121,7 @@ public final class PrepareImage {
         }
         void add(byte[] row) throws IOException {
             if (row.length != width * 3 || received >= height) throw new IOException("Fila inesperada");
-            byte[] copy = row.clone(); // PngRows reutiliza buffers; cada franja debe conservar los suyos.
+            byte[] copy = row.clone(); // El lector de filas puede reutilizar buffers; cada franja debe conservar los suyos.
             strip[count++] = copy; received++;
             if (next != null) {
                 if (pending == null) pending = copy;

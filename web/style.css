@@ -67,3 +67,5 @@ form label { flex-direction: row; align-items: center; }
   #dimensions { font-size: 10px; }
   footer { display: none; }
 }
+
+#prepare-zip-fields, #prepare-file-fields, #prepare-url-fields { width: 100%; }

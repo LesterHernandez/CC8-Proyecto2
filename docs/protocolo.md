@@ -120,7 +120,8 @@ más índices y margen para metadatos. Se exige ese espacio y una reserva adicio
 de 256 MiB, aunque la compresión pueda reducir mucho la salida real. Durante la
 preparación también se comprueba el espacio libre periódicamente.
 
-No se extrae el original ni se crean temporales de imágenes completas. Los ZIP y
+Para PNG no se extrae el original ni se crean temporales completos. JPEG/GIF/BMP
+utilizan un temporal comprimido acotado a 64 MiB. Los ZIP y
 almacenes permanecen en el disco local y están excluidos de Git. Si una preparación
 falla, los archivos parciales quedan marcados y no se sirven. No hay reanudación:
 se debe repetir en una carpeta nueva; una salida existente nunca se sobrescribe.
@@ -507,7 +508,7 @@ SHA-256 del navegador funciona en el contexto local de localhost. El heap Java d
 
 ImagePreparation administra una sola tarea global. PREPARE_LIST enumera ZIP
 directos del directorio de imágenes; PREPARE_ENTRIES recibe `zip` y devuelve
-entradas PNG. Las consultas usan un trabajador, con una consulta pendiente por
+entradas PNG/JPEG/GIF/BMP. Las consultas usan un trabajador, con una consulta pendiente por
 sesión. No se extraen entradas ni se aceptan rutas exteriores.
 
 PREPARE_START recibe `zip`, `entry` y `name`. El destino es una carpeta nueva
@@ -529,6 +530,44 @@ Cerrar el panel no cancela la tarea; cerrar el servidor detiene el proceso hijo.
 Las salidas incompletas no se publican ni se eliminan automáticamente. No se
 sobrescriben destinos existentes. Es una utilidad local de gestión, independiente
 de los modos de transferencia PRIB.
+
+### Fuentes de imagen y URL
+
+Se conserva PREPARE_START para ZIP. PREPARE_URL recibe `url` y `name`; abre
+un flujo HTTP/HTTPS público con hasta cinco redirecciones, 10 segundos para
+conectar y 30 segundos de espera por lectura. No envía credenciales ni cookies.
+Cada destino se valida para rechazar redes privadas, locales y URLs con usuario.
+
+PREPARE_UPLOAD recibe `size` y `name`; reserva la tarea para la sesión emisora.
+PREPARE_UPLOAD_ACK con `offset: 0` permite comenzar. PREPARE_CHUNK recibe
+`offset` y `data` en Base64, hasta 4096 bytes decodificados. Se permite un solo
+fragmento pendiente; el ACK devuelve el siguiente offset cuando se escribió
+al flujo del preprocesador. No se acumula el archivo completo en memoria ni
+se crea una copia completa en memoria durante la recepción. Estos controles respetan el límite de
+8 KiB y no consumen los créditos de bloques PRIB de salida.
+
+PREPARE_END confirma que llegaron los bytes declarados y cierra el flujo. Solo
+entonces se puede quitar INCOMPLETE y publicar el almacén. PREPARE_ABORT o la
+desconexión de la sesión propietaria antes de END interrumpen la subida. También
+se aborta tras 60 segundos sin actividad. Otras sesiones no pueden escribirla.
+La preparación final continúa al cerrar el panel o después de END. ZIP y URL
+continúan al cerrar la pestaña. Todos los controles conservan versión y sesión.
+
+Las tres fuentes usan la misma pirámide, hashes y catálogo. ImageRows detecta
+firmas PNG (89 50 4e 47 0d 0a 1a 0a), JPEG (ff d8 ff), GIF87a/GIF89a y BMP (BM).
+PNG delega al lector incremental RGB8 existente. JPEG/GIF/BMP usan ImageIO,
+un temporal comprimido de hasta 64 MiB (eliminado después de decodificar),
+16 millones de píxeles y hasta 32768 por lado. Se valida la dimensión antes de
+reservar la imagen decodificada. Se convierte a RGB8; GIF usa el primer fotograma
+y el alfa se compone sobre blanco. `sourceFormat` registra el formato detectado
+en el manifiesto. Cambiar la fuente no reduce el espacio de salida.
+
+Los nombres de controles PREPARE_UPLOAD/CHUNK/END/ABORT se conservan para todos
+los formatos. Los nombres y extensiones del archivo local no determinan su firma.
+Los hashes corresponden al RGB decodificado, sin prometer recuperar la pérdida
+original de JPEG. PNG sigue siendo la vía para imágenes de decenas de GB.
+`prib.allowLocalImageUrls=true` se usa exclusivamente en las pruebas aisladas
+para servir fixtures HTTP locales; el servidor normal rechaza esos destinos.
 
 ## Referencias
 
